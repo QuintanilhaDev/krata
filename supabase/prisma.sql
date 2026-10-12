@@ -10,7 +10,7 @@ do $$ begin
     alter table public.profiles add constraint profiles_pronoun_check check (pronoun is null or pronoun in ('ele', 'ela'));
   end if;
 end $$;
-grant update (pronoun) on public.profiles to authenticated;
+grant update (pronoun) on public.profileit to authenticated;
 
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
