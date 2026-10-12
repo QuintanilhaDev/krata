@@ -21,9 +21,10 @@ echo "• recursos"
 "$AAPT2" link -I "$ANDROID_JAR" --manifest AndroidManifest.xml -o build/base.apk --java build/gen \
   --min-sdk-version 26 --target-sdk-version 34 --version-code "$VERSION_CODE" --version-name "$VERSION_NAME" build/res.zip
 echo "• java"
-javac -nowarn -encoding UTF-8 -source 8 -target 8 -bootclasspath "$ANDROID_JAR" -Xlint:-options -d build/classes \
-  $(find src build/gen -name '*.java') 2>&1 | grep -v "JAVA_TOOL_OPTIONS" || true
-[ -f build/classes/app/krata/MainActivity.class ] || { echo "falhou a compilação"; exit 1; }
+if ! javac -nowarn -encoding UTF-8 -source 8 -target 8 -bootclasspath "$ANDROID_JAR" -Xlint:-options -d build/classes \
+  $(find src build/gen -name '*.java') > build/javac.log 2>&1; then
+  grep -v "JAVA_TOOL_OPTIONS" build/javac.log; echo "falhou a compilação"; exit 1
+fi
 echo "• dex"
 java -jar "$DX" --dex --min-sdk-version=26 --output=build/classes.dex build/classes 2>&1 | grep -v "JAVA_TOOL_OPTIONS" || true
 echo "• pacote"

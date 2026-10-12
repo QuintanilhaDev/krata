@@ -1036,3 +1036,5 @@ html, body { overscroll-behavior: none; }
   [data-nav="1"][data-call="1"] .prisma-fab-wrap { bottom: calc(178px + env(safe-area-inset-bottom)); }
   [data-nav="0"][data-call="1"] .prisma-fab-wrap { bottom: calc(96px + env(safe-area-inset-bottom)); }
 }
+.app-notify { display: grid; gap: 4px; }
+.app-notify strong svg { vertical-align: -2px; margin-right: 4px; color: var(--jade-hi); }

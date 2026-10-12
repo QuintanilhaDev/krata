@@ -103,7 +103,14 @@ site chega no app sem precisar baixar de novo. O que ele tem a mais que o navega
 - chamada que continua com a tela apagada ou em outro app (aparece uma notificação enquanto durar);
 - voz da Prisma pela síntese do próprio Android; botão voltar do Android fecha janelas e menus antes de sair.
 
-Rode também `supabase/atualizacao-app.sql` no SQL Editor (corrige pedidos de amizade enviados pelos dois ao mesmo tempo).
+Rode também no SQL Editor: `supabase/atualizacao-app.sql` (corrige pedidos de amizade enviados pelos dois ao mesmo tempo)
+e `supabase/notificacoes.sql` (notificações do app).
+
+**Notificações do app:** conversas privadas e grupos sempre; servidores só quando te marcam com `@você` ou `@todos`; nada no
+"não perturbe". Cada notificação mostra a foto e o nome de quem mandou, junta as mensagens da mesma conversa e tem os botões
+**Responder** (sem abrir o app) e **Marcar como lida**. Com o app fechado, ele busca as mensagens sozinho: na hora, com a opção
+"Receber na hora" ligada (fica um ícone discreto na barra), ou a cada 15 minutos sem ela. Em alguns celulares (Xiaomi,
+Samsung, Motorola) é preciso liberar o Krata na economia de bateria. O botão para isso fica em Configurações → App Android.
 
 Para gerar uma versão nova do app: aumente `versionCode`/`versionName` em `android/AndroidManifest.xml` e `APP_VERSION` em
 `src/lib/native.ts`, e rode `android/build-apk.sh`. **Assine sempre com a mesma chave** (arquivos `krata-key.pem` e

@@ -2,6 +2,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js'
 import { dropChannel, errorText, openChannel as openRealtime, safeMediaUrl, supabase } from '../lib/supabase'
 import { sounds } from '../lib/sound'
 import type { Attachment, Channel, CustomEmoji, DmMember, Friendship, Member, Message, Profile, Reaction, Role, Server, Status } from '../lib/types'
+import { appVisible, clearChannelNotifications, nativeNotify, unregisterDevice } from '../lib/appNotify'
 import { MAX_FILE_BYTES, MAX_FILES, describeFile, uploadFile } from '../lib/upload'
 import { fileSize } from '../lib/time'
 import { channelTitle, get, initialState, set, toast, type MsgList, type Nav } from './app'
@@ -73,6 +74,7 @@ async function teardown() {
 }
 
 export async function signOut() {
+  await unregisterDevice(get().userId)
   await stopVoiceEverything()
   await supabase.auth.signOut().catch(() => {})
   if (get().userId) await teardown()
@@ -80,7 +82,7 @@ export async function signOut() {
 }
 
 function onVisible() {
-  if (document.visibilityState !== 'visible') return
+  if (document.visibilityState !== 'visible' || !appVisible()) return
   const ch = get().nav.channelId
   if (ch && get().unread[ch]) void markRead(ch)
 }
@@ -252,6 +254,7 @@ export async function openChannel(channelId: string) {
 }
 
 export async function markRead(channelId: string) {
+  clearChannelNotifications(channelId)
   if (get().unread[channelId]) set((s) => ({ unread: { ...s.unread, [channelId]: 0 } }))
   await supabase.rpc('mark_read', { p_channel: channelId })
 }
@@ -721,18 +724,33 @@ function onMessageChange(p: Change) {
     typing: st.typing[m.channel_id]?.[m.author_id] ? { ...st.typing, [m.channel_id]: pick(st.typing[m.channel_id], (k) => k !== m.author_id) } : st.typing,
   }))
   if (m.author_id === s.userId) return
-  const viewing = s.nav.channelId === m.channel_id && document.visibilityState === 'visible' && document.hasFocus()
+  const viewing = s.nav.channelId === m.channel_id && document.visibilityState === 'visible' && appVisible() && (document.hasFocus() || !!window.KrataNative)
   if (viewing) void markRead(m.channel_id)
   else set((st) => ({ unread: { ...st.unread, [m.channel_id]: (st.unread[m.channel_id] || 0) + 1 } }))
 }
 
-function notify(m: Message) {
-  const s = get()
+async function notify(m: Message) {
+  let s = get()
   if (m.author_id === s.userId || s.me?.status === 'dnd') return
-  const channel = s.channels.find((c) => c.id === m.channel_id)
-  if (!channel) return
+  let channel = s.channels.find((c) => c.id === m.channel_id)
+  if (!channel) {
+    // conversa nova (alguém puxou papo agora): carrega e avisa mesmo assim
+    await loadStructure()
+    s = get()
+    channel = s.channels.find((c) => c.id === m.channel_id)
+    if (!channel) return
+    await ensureProfiles(s.dmMembers.filter((d) => d.channel_id === m.channel_id).map((d) => d.user_id))
+    s = get()
+  }
   const mentioned = !!s.me && new RegExp(`(^|\\s)@(${s.me.username}|todos)(?![a-z0-9_.])`, 'i').test(m.content)
   if (channel.server_id && !mentioned) return
+  if (window.KrataNative?.notify) {
+    // app Android: notificação do sistema (com foto, nome e resposta rápida)
+    if (s.nav.channelId === m.channel_id && appVisible()) return
+    const server = s.servers.find((x) => x.id === channel.server_id)
+    const members = channel.server_id ? 0 : s.dmMembers.filter((d) => d.channel_id === channel.id).length
+    if (nativeNotify(m, channel, s.profiles[m.author_id], { title: channel.server_id ? channel.name : channelTitle(s, channel), serverName: server?.name, serverIcon: server?.icon_url, members })) return
+  }
   const viewing = s.nav.channelId === m.channel_id && document.visibilityState === 'visible' && document.hasFocus()
   if (viewing) return
   if (localStorage.getItem('krata-sounds') !== 'off') sounds.message()

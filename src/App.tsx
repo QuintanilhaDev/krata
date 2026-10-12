@@ -10,7 +10,8 @@ import { applyMotion } from './lib/motion'
 import { useSwipeNav } from './lib/swipe'
 import { APP_VERSION } from './lib/native'
 import { isConfigured } from './lib/supabase'
-import { boot } from './store/actions'
+import { boot, navigate } from './store/actions'
+import { registerDevice } from './lib/appNotify'
 import { closeModal, openModal, set, toast, useApp } from './store/app'
 import { usePrisma } from './prisma/store'
 import { setViewScope, useVoice, voiceDebug } from './voice/engine'
@@ -26,6 +27,8 @@ function Shell() {
   const inCall = useVoice((v) => !!v.channelId)
   const stage = useVoice((v) => !!v.channelId && v.stageOpen)
 
+  const meId = useApp((s) => s.me?.id)
+  useEffect(() => { const me = useApp.getState().me; if (me && window.KrataNative) void registerDevice(me) }, [meId])
   const shellRef = useRef<HTMLDivElement>(null)
   useSwipeNav(shellRef)
   useEffect(() => { setViewScope(nav.serverId ?? (channel && !channel.server_id ? channel.id : null)) }, [nav.serverId, channel])
@@ -109,6 +112,13 @@ if (window.KrataNative) {
 if (window.KrataNative) {
   let was = false
   useVoice.subscribe((v) => { const on = !!v.channelId; if (on !== was) { was = on; try { window.KrataNative?.setInCall(on) } catch { /* versão antiga do app */ } } })
+}
+
+// toque numa notificação do app: abre a conversa
+;(window as unknown as { __krataOpen?: (serverId: string | null, channelId: string) => void }).__krataOpen = (serverId, channelId) => {
+  if (!useApp.getState().userId) return
+  closeModal()
+  navigate({ serverId: serverId || null, channelId })
 }
 
 // botão "voltar" do Android (app): fecha o que estiver por cima antes de sair do app

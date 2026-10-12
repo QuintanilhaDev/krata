@@ -14,6 +14,9 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.PowerManager;
+import android.provider.Settings;
+import android.app.NotificationManager;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.Voice;
 import android.view.View;
@@ -41,18 +44,21 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import org.json.JSONObject;
 import java.util.Map;
 
 /** O app do Krata: o site dentro de um WebView, com captura de tela nativa e chamada em segundo plano. */
 public class MainActivity extends Activity {
     static final String APP_URL = "https://krata-henna.vercel.app/";
     static final String APP_HOST = Uri.parse(APP_URL).getHost();
-    static final String VERSION = "1.0.0";
+    static final String VERSION = "1.1.0";
+    static volatile boolean visible = false;
 
     private static final int REQ_SCREEN = 41;
     private static final int REQ_FILES = 42;
     private static final int REQ_PERMS = 43;
     private static final int REQ_NOTIFY = 44;
+    private static final int REQ_NOTIFY_ONLY = 45;
 
     private KrataWebView web;
     private FrameLayout root;
@@ -65,6 +71,8 @@ public class MainActivity extends Activity {
     private int screenFps = 30;
     private boolean screenAudio = true;
     private TextToSpeech tts;
+    private volatile boolean pageReady = false;
+    private String pendingChannel, pendingServer;
     private volatile boolean ttsReady = false;
 
     @Override
@@ -127,8 +135,12 @@ public class MainActivity extends Activity {
             }
         });
 
+        takeOpen(getIntent());
         if (saved != null) web.restoreState(saved);
         else web.loadUrl(startUrl(getIntent()));
+
+        // notificações: volta a agendar a busca em segundo plano
+        if (Inbox.configured(this)) { SyncJob.schedule(this); SyncService.start(this); }
     }
 
     private String startUrl(Intent intent) {
@@ -140,8 +152,39 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (takeOpen(intent)) { flushOpen(); return; }
         Uri data = intent.getData();
         if (data != null && APP_HOST.equals(data.getHost())) web.loadUrl(data.toString());
+    }
+
+    /** Toque numa notificação: guarda qual conversa abrir. */
+    private boolean takeOpen(Intent intent) {
+        String ch = intent != null ? intent.getStringExtra("channel") : null;
+        if (ch == null || ch.isEmpty()) return false;
+        pendingChannel = ch;
+        pendingServer = intent.getStringExtra("server");
+        return true;
+    }
+
+    private void flushOpen() {
+        if (pendingChannel == null || !pageReady) return;
+        String js = "window.__krataOpen && window.__krataOpen(" + JSONObject.quote(pendingServer == null ? "" : pendingServer) + "," + JSONObject.quote(pendingChannel) + ")";
+        pendingChannel = null;
+        web.evaluateJavascript(js, null);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        visible = true;
+        // avisa o site que o app voltou para a tela (marca a conversa aberta como lida e limpa as notificações dela)
+        if (web != null) web.evaluateJavascript("document.dispatchEvent(new Event('visibilitychange'))", null);
+    }
+
+    @Override
+    protected void onPause() {
+        visible = false;
+        super.onPause();
     }
 
     @Override
@@ -206,6 +249,86 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void stopSpeaking() { if (ttsReady) tts.stop(); }
 
         @JavascriptInterface public boolean isSpeaking() { return ttsReady && tts.isSpeaking(); }
+
+        // ---------------------------------------------------------- notificações
+        @JavascriptInterface public void setInbox(String json) {
+            if (!trusted()) return;
+            try {
+                Inbox.configure(MainActivity.this, new JSONObject(json));
+                Notifier.channels(MainActivity.this);
+                SyncJob.schedule(MainActivity.this);
+                SyncService.start(MainActivity.this);
+            } catch (Throwable ignored) {}
+        }
+
+        @JavascriptInterface public void clearInbox() {
+            if (!trusted()) return;
+            Inbox.clear(MainActivity.this);
+            SyncService.stop(MainActivity.this);
+            SyncJob.cancel(MainActivity.this);
+        }
+
+        @JavascriptInterface public void notify(final String json) {
+            if (!trusted()) return;
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    try {
+                        JSONObject m = new JSONObject(json);
+                        if (Inbox.markSeen(MainActivity.this, m.optString("id"))) Notifier.show(MainActivity.this, m, false);
+                    } catch (Throwable ignored) {}
+                }
+            }).start();
+        }
+
+        @JavascriptInterface public void clearChannel(String channelId) {
+            if (!trusted() || channelId == null) return;
+            Notifier.clearChannel(MainActivity.this, channelId);
+        }
+
+        @JavascriptInterface public boolean appVisible() { return visible; }
+
+        @JavascriptInterface public boolean notificationsAllowed() {
+            return getSystemService(NotificationManager.class).areNotificationsEnabled();
+        }
+
+        @JavascriptInterface public void requestNotifications() {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                            && !getSharedPreferences("krata_ui", MODE_PRIVATE).getBoolean("asked_notify", false)) {
+                        getSharedPreferences("krata_ui", MODE_PRIVATE).edit().putBoolean("asked_notify", true).apply();
+                        requestPermissions(new String[] { Manifest.permission.POST_NOTIFICATIONS }, REQ_NOTIFY_ONLY);
+                        return;
+                    }
+                    try {
+                        startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()));
+                    } catch (Throwable ignored) {}
+                }
+            });
+        }
+
+        @JavascriptInterface public boolean backgroundAllowed() {
+            PowerManager pm = getSystemService(PowerManager.class);
+            return pm == null || pm.isIgnoringBatteryOptimizations(getPackageName());
+        }
+
+        @JavascriptInterface public void openBackgroundSettings() {
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    try {
+                        startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName())));
+                    } catch (Throwable t) {
+                        try { startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); } catch (Throwable ignored) {}
+                    }
+                }
+            });
+        }
+
+        @JavascriptInterface public void setLiveSync(boolean on) {
+            if (!trusted()) return;
+            Inbox.setLiveSync(MainActivity.this, on);
+            if (on) SyncService.start(MainActivity.this); else SyncService.stop(MainActivity.this);
+        }
 
         @JavascriptInterface public void stopScreen() {
             if (!trusted()) return;
@@ -292,6 +415,13 @@ public class MainActivity extends Activity {
         @Override
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
             currentHost = Uri.parse(url).getHost();
+            pageReady = false;
+        }
+
+        @Override
+        public void onPageFinished(WebView view, String url) {
+            // o site ainda carrega a sessão depois do "load": espera um pouco antes de abrir a conversa
+            view.postDelayed(new Runnable() { @Override public void run() { pageReady = true; flushOpen(); } }, 1800);
         }
 
         @Override
