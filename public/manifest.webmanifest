@@ -1,0 +1,14 @@
+{
+  "name": "Krata",
+  "short_name": "Krata",
+  "description": "Chat, voz e compartilhamento de tela em até 4K.",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050706",
+  "theme_color": "#050706",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
