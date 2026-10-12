@@ -257,18 +257,31 @@ export async function markRead(channelId: string) {
 }
 
 // ============================================================ mensagens
+/** Mensagens na ordem do servidor (horário de criação); as que ainda estão saindo ficam no fim. */
+function ordered(items: Message[]): Message[] {
+  let sorted = true
+  for (let i = 1; i < items.length; i++) if (rank(items[i - 1], items[i]) > 0) { sorted = false; break }
+  return sorted ? items : [...items].sort(rank)
+}
+function rank(a: Message, b: Message): number {
+  const pa = a.pending || a.failed ? 1 : 0, pb = b.pending || b.failed ? 1 : 0
+  if (pa !== pb) return pa - pb
+  if (pa) return 0
+  return a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
+
 function patchList(channelId: string, fn: (items: Message[]) => Message[]) {
   set((s) => {
     const l = s.messages[channelId]
     if (!l) return s
-    return { messages: { ...s.messages, [channelId]: { ...l, items: fn(l.items) } } }
+    return { messages: { ...s.messages, [channelId]: { ...l, items: ordered(fn(l.items)) } } }
   })
 }
 function patchMessage(id: string, fn: (m: Message) => Message) {
   set((s) => {
     for (const [cid, l] of Object.entries(s.messages)) {
       if (l.items.some((m) => m.id === id))
-        return { messages: { ...s.messages, [cid]: { ...l, items: l.items.map((m) => (m.id === id ? fn(m) : m)) } } }
+        return { messages: { ...s.messages, [cid]: { ...l, items: ordered(l.items.map((m) => (m.id === id ? fn(m) : m))) } } }
     }
     return s
   })

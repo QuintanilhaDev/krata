@@ -34,7 +34,9 @@ const W = () => window as unknown as { SpeechRecognition?: RecognizerCtor; webki
 export const isIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
 export const speechSupport = () => !!(W().SpeechRecognition || W().webkitSpeechRecognition)
 /** Escuta contínua só onde o navegador aguenta (no iPhone ela para sozinha e não volta). */
-export const canContinuous = () => speechSupport() && !isIOS()
+// no app Android o WebView não tem reconhecimento de fala de verdade: usa o "toque para falar"
+const webSpeechOk = () => !isIOS() && !window.KrataNative
+export const canContinuous = () => speechSupport() && webSpeechOk()
 
 export function initVoice(h: Handler) {
   handler = h
@@ -134,7 +136,7 @@ export async function pushToTalk() {
   if (oneShot) { try { oneShot.stop() } catch { /* já parado */ } return }
   audioCtx()
   const Ctor = W().SpeechRecognition || W().webkitSpeechRecognition
-  if (Ctor && !isIOS()) {
+  if (Ctor && webSpeechOk()) {
     pausedForPtt = true
     stopRec()
     const r = new Ctor()
@@ -260,6 +262,7 @@ export function stopSpeaking() {
   try { currentSource?.stop() } catch { /* já parou */ }
   currentSource = null
   if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel()
+  try { window.KrataNative?.stopSpeaking?.() } catch { /* sem app */ }
   speakingUntil = Date.now() + 300
 }
 
@@ -300,7 +303,25 @@ async function speakNeural(text: string, token: number): Promise<boolean> {
   } catch { return false }
 }
 
+/** Voz do próprio Android (app), quando o WebView não tem síntese de voz. */
+async function speakNative(text: string, token: number, onPulse?: () => void): Promise<void> {
+  const n = window.KrataNative
+  if (!n?.speak) return
+  n.speak(text, 1.05, 1.14, Math.max(0, Math.min(1, volume())))
+  const started = Date.now()
+  await new Promise((r) => setTimeout(r, 250))
+  while (token === speakToken && Date.now() - started < 30000) {
+    let busy = false
+    try { busy = !!n.isSpeaking?.() } catch { /* app antigo */ }
+    if (!busy) break
+    onPulse?.()
+    await new Promise((r) => setTimeout(r, 120))
+  }
+  if (token !== speakToken) { try { n.stopSpeaking?.() } catch { /* já parou */ } }
+}
+
 function speakDevice(text: string, token: number, onPulse?: () => void): Promise<void> {
+  if (window.KrataNative?.speak) return speakNative(text, token, onPulse)
   if (typeof speechSynthesis === 'undefined') return Promise.resolve()
   const voices = femaleVoices()
   const picked = voices.find((v) => v.name === chosenVoice()) || voices[0]

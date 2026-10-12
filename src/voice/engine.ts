@@ -6,6 +6,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js'
 import { create } from 'zustand'
 import { dropChannel, iceServers, openChannel, supabase } from '../lib/supabase'
 import { audioCtx, sounds } from '../lib/sound'
+import { nativeScreenStream } from '../lib/nativeScreen'
 import { get as app, dmPartnerIds, toast } from '../store/app'
 import { trackPresence } from '../store/actions'
 
@@ -85,7 +86,7 @@ export function screenBitrate(s: ScreenSettings): number {
   const factor = s.fps === 60 ? 1.45 : s.fps === 30 ? 1 : 0.6
   return Math.round(base * factor * 1_000_000)
 }
-export const canShareScreen = () => typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia
+export const canShareScreen = () => typeof navigator !== 'undefined' && (!!navigator.mediaDevices?.getDisplayMedia || !!window.KrataNative)
 
 // ------------------------------------------------------------------ presença de voz (quem está em cada sala)
 interface Scope { channel: RealtimeChannel | null; refs: Set<string>; ready: Promise<void> }
@@ -641,7 +642,12 @@ export async function startScreen(settings: ScreenSettings): Promise<boolean> {
   if (!canShareScreen()) { toast('Este navegador não permite compartilhar a tela. No celular, você ainda pode assistir às transmissões.', 'error'); return false }
   localStorage.setItem('krata-screen', JSON.stringify(settings))
   let stream: MediaStream
-  try {
+  if (window.KrataNative) {
+    // app Android: captura nativa da tela
+    const got = await nativeScreenStream(settings, () => { if (vget().screenStream === got) stopScreen() })
+    if (!got) return false
+    stream = got
+  } else try {
     stream = await navigator.mediaDevices.getDisplayMedia({
       video: videoConstraints(settings),
       audio: settings.audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } as MediaTrackConstraints : false,

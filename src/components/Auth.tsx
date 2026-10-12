@@ -2,6 +2,7 @@ import { Eye, EyeOff, MonitorUp, Paperclip, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { USERNAME_RX, errorText, loginEmail, supabase } from '../lib/supabase'
 import { usernameAvailable } from '../store/actions'
+import { AppDownload } from './AppDownload'
 import { Field, Gem, Logo, ShardField, useParallax } from './ui'
 
 function Stage({ children }: { children: React.ReactNode }) {
@@ -23,8 +24,9 @@ function Stage({ children }: { children: React.ReactNode }) {
           <li style={{ ['--i' as string]: 1 }}><Paperclip size={18} /><span>Envie fotos e vídeos de até 200 MB no chat.</span></li>
           <li style={{ ['--i' as string]: 2 }}><Sparkles size={18} /><span>Avatar animado, banner, emojis próprios e mensagens longas sem pagar nada.</span></li>
         </ul>
+        <AppDownload variant="login" />
       </section>
-      <div className="auth-card-wrap">{children}</div>
+      <div className="auth-card-wrap">{children}<AppDownload variant="login" /></div>
     </div>
   )
 }

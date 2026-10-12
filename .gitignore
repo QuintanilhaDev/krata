@@ -5,3 +5,9 @@ dist
 .env.*.local
 *.log
 .DS_Store
+
+# app Android
+android/build/
+*.pem
+*.p12
+*.keystore

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Krata" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@drawable/splash</item>
+        <item name="android:statusBarColor">#050706</item>
+        <item name="android:navigationBarColor">#050706</item>
+        <item name="android:colorAccent">#00A86B</item>
+        <item name="android:colorPrimary">#050706</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

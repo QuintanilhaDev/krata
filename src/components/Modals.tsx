@@ -18,6 +18,7 @@ import { Markdown, plain } from './Markdown'
 import { Avatar, ErrorBoundary, Field, Modal, STATUS_LABEL, Spinner, Tilt } from './ui'
 import { PasswordInput, Strength, passwordError } from './Auth'
 import { motionLevel, setMotion } from '../lib/motion'
+import { AppDownload, AppInstallSteps } from './AppDownload'
 import { PrismaSettings } from './Prisma'
 import { ScreenShareModal } from './Voice'
 
@@ -322,8 +323,8 @@ function ProfileCard({ userId }: Of<'profile'>) {
 
 function Settings({ tab: initialTab }: Of<'settings'>) {
   const me = useApp((s) => s.me)!
-  const [tab, setTab] = useState<'perfil' | 'voz' | 'avisos' | 'visual' | 'prisma' | 'conta'>(
-    (['perfil', 'voz', 'avisos', 'visual', 'prisma', 'conta'].includes(initialTab || '') ? initialTab : 'perfil') as 'perfil')
+  const [tab, setTab] = useState<'perfil' | 'voz' | 'avisos' | 'visual' | 'prisma' | 'app' | 'conta'>(
+    (['perfil', 'voz', 'avisos', 'visual', 'prisma', 'app', 'conta'].includes(initialTab || '') ? initialTab : 'perfil') as 'perfil')
   const [motion, setMotionState] = useState(motionLevel())
   const [f, setF] = useState({ display_name: me.display_name, bio: me.bio, avatar_url: me.avatar_url, banner_url: me.banner_url, accent_color: me.accent_color, pronoun: me.pronoun ?? null })
   const [busy, setBusy] = useState(false)
@@ -361,8 +362,8 @@ function Settings({ tab: initialTab }: Of<'settings'>) {
   return (
     <Modal title="Configurações" onClose={closeModal} wide>
       <div className="tabs pad" role="tablist">
-        {(['perfil', 'prisma', 'voz', 'avisos', 'visual', 'conta'] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={`tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>{{ perfil: 'Perfil', prisma: 'Prisma', voz: 'Voz e vídeo', avisos: 'Avisos', visual: 'Animações', conta: 'Conta' }[t]}</button>
+        {(['perfil', 'prisma', 'voz', 'avisos', 'visual', 'app', 'conta'] as const).map((t) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={`tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>{{ perfil: 'Perfil', prisma: 'Prisma', voz: 'Voz e vídeo', avisos: 'Avisos', visual: 'Animações', app: 'App Android', conta: 'Conta' }[t]}</button>
         ))}
       </div>
       <div className="modal-body tall">
@@ -405,6 +406,7 @@ function Settings({ tab: initialTab }: Of<'settings'>) {
           </div>
         )}
         {tab === 'prisma' && <PrismaSettings />}
+        {tab === 'app' && <div className="app-tab"><AppDownload /><AppInstallSteps /></div>}
         {tab === 'voz' && (
           <>
             <Field label="Microfone">

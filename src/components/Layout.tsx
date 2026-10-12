@@ -109,7 +109,7 @@ function HomeSidebar() {
         <button className="search-trigger" onClick={() => openModal({ type: 'switcher' })}><Search size={15} /> Buscar ou ir para…</button>
       </header>
       <div className="side-scroll">
-        <button data-prisma="friends" className={`side-item${!nav.channelId ? ' on' : ''}`} onClick={() => navigate({ serverId: null, channelId: null })}>
+        <button data-prisma="friends" className={`side-item${!nav.channelId ? ' on' : ''}`} onClick={() => { navigate({ serverId: null, channelId: null }); set({ mobileNav: false }) }}>
           <Users size={19} /> <span className="grow">Amigos</span>
           {pending > 0 && <span className="badge inline">{pending}</span>}
         </button>
@@ -292,6 +292,7 @@ export function MembersPanel({ channel }: { channel: Channel }) {
 const TABS: { id: AppState['homeTab']; label: string }[] = [
   { id: 'online', label: 'Disponíveis' }, { id: 'all', label: 'Todos' }, { id: 'pending', label: 'Pendentes' }, { id: 'add', label: 'Adicionar amigo' },
 ]
+const SHORT: Record<string, string> = { online: 'Online', all: 'Todos', pending: 'Pedidos', add: 'Adicionar' }
 
 export function FriendsView() {
   const state = useApp()
@@ -323,8 +324,8 @@ export function FriendsView() {
         <div className="chat-head-title"><h1>Amigos</h1></div>
         <div className="tabs" role="tablist">
           {TABS.map((t) => (
-            <button key={t.id} role="tab" aria-selected={tab === t.id} className={`tab${tab === t.id ? ' on' : ''}${t.id === 'add' ? ' cta' : ''}`} onClick={() => set({ homeTab: t.id })}>
-              {t.label}{t.id === 'pending' && incoming.length > 0 && <span className="badge inline">{incoming.length}</span>}
+            <button key={t.id} role="tab" aria-label={t.id === 'pending' && incoming.length ? `${t.label} (${incoming.length})` : t.label} aria-selected={tab === t.id} className={`tab${tab === t.id ? ' on' : ''}${t.id === 'add' ? ' cta' : ''}`} onClick={() => set({ homeTab: t.id })}>
+              <span className="hide-narrow">{t.label}</span><span className="only-narrow">{SHORT[t.id]}</span>{t.id === 'pending' && incoming.length > 0 && <span className="badge inline">{incoming.length}</span>}
             </button>
           ))}
         </div>

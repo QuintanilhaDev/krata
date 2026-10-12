@@ -93,6 +93,22 @@ No computador e no Android ela ouve o tempo todo (o navegador pede o microfone u
 ouvir continuamente: toque no botão flutuante dela para falar (segure para abrir o chat escrito). Em qualquer canal,
 escreva `@prisma` + pergunta e ela responde ali para todo mundo.
 
+### 8. App Android (.apk)
+
+O arquivo `public/krata.apk` já vai junto com o site: o botão **Baixar .apk** aparece na tela de login e em
+**Configurações → App Android**. O app abre o seu site (`krata-henna.vercel.app`) por dentro, então tudo que você publica no
+site chega no app sem precisar baixar de novo. O que ele tem a mais que o navegador do celular:
+
+- **compartilhar a tela pelo celular** (com o som dos apps), usando a captura nativa do Android;
+- chamada que continua com a tela apagada ou em outro app (aparece uma notificação enquanto durar);
+- voz da Prisma pela síntese do próprio Android; botão voltar do Android fecha janelas e menus antes de sair.
+
+Rode também `supabase/atualizacao-app.sql` no SQL Editor (corrige pedidos de amizade enviados pelos dois ao mesmo tempo).
+
+Para gerar uma versão nova do app: aumente `versionCode`/`versionName` em `android/AndroidManifest.xml` e `APP_VERSION` em
+`src/lib/native.ts`, e rode `android/build-apk.sh`. **Assine sempre com a mesma chave** (arquivos `krata-key.pem` e
+`krata-cert.pem` entregues à parte). Sem ela o Android não deixa atualizar o app instalado. Não coloque a chave no GitHub.
+
 ### Rodar no computador (opcional)
 
 ```bash
@@ -141,7 +157,7 @@ npm run dev
   até umas 6 a 8 pessoas por sala. Uma transmissão em 4K para 5 pessoas pede algo como 100 Mbps de envio de quem transmite;
   quando a internet não aguenta, a qualidade baixa sozinha. Para salas grandes seria preciso um servidor de mídia (ex.: LiveKit).
 - **4K de verdade** depende da internet de envio e da placa de vídeo de quem transmite.
-- **Celulares** não permitem compartilhar a tela pelo navegador (limitação do Android/iOS). Assistir funciona normalmente.
+- **Celulares** não permitem compartilhar a tela pelo navegador (limitação do Android/iOS). No Android, o app do Krata resolve isso. No iPhone, assistir funciona normalmente.
 - Notificações só chegam com o Krata aberto em alguma aba.
 - **Prisma:** o plano grátis da Groq tem um limite diário para a conta inteira (por volta de mil conversas por dia no modelo
   principal; quando acaba ela troca de modelo sozinha). Comandos do app não gastam nada. Com muita gente, use o plano pago.
@@ -159,5 +175,7 @@ src/prisma/              Prisma: cérebro local (aprendizado de máquina), voz, 
 api/                     funções do servidor da Prisma (Groq, Whisper, voz neural)
 supabase/prisma.sql      tabelas e regras da Prisma
 src/styles/app.css       identidade visual (ônix, jade e branco) e animações
+android/                 app Android (WebView + captura de tela nativa) e o script que gera o .apk
+public/krata.apk         o app pronto para baixar
 vercel.json              configuração da hospedagem
 ```

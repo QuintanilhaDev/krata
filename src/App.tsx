@@ -7,9 +7,12 @@ import { PrismaRoot } from './components/Prisma'
 import { AudioSink, CallPill, IncomingCall, VoiceBar, VoiceStage } from './components/Voice'
 import { ErrorBoundary, Gem, ShardField, Toasts } from './components/ui'
 import { applyMotion } from './lib/motion'
+import { useSwipeNav } from './lib/swipe'
+import { APP_VERSION } from './lib/native'
 import { isConfigured } from './lib/supabase'
 import { boot } from './store/actions'
-import { openModal, set, useApp } from './store/app'
+import { closeModal, openModal, set, toast, useApp } from './store/app'
+import { usePrisma } from './prisma/store'
 import { setViewScope, useVoice, voiceDebug } from './voice/engine'
 
 function Shell() {
@@ -23,6 +26,8 @@ function Shell() {
   const inCall = useVoice((v) => !!v.channelId)
   const stage = useVoice((v) => !!v.channelId && v.stageOpen)
 
+  const shellRef = useRef<HTMLDivElement>(null)
+  useSwipeNav(shellRef)
   useEffect(() => { setViewScope(nav.serverId ?? (channel && !channel.server_id ? channel.id : null)) }, [nav.serverId, channel])
   useEffect(() => { document.title = unreadTotal > 0 ? `(${unreadTotal > 99 ? '99+' : unreadTotal}) Krata` : 'Krata' }, [unreadTotal])
   useEffect(() => {
@@ -41,8 +46,11 @@ function Shell() {
   }, [inCall])
 
   const members = channel && channel.kind !== 'dm' && showMembers && !stage
+  useEffect(() => { document.documentElement.dataset.members = members ? '1' : '0' }, [members])
+  useEffect(() => { document.documentElement.dataset.nav = mobileNav && !stage ? '1' : '0' }, [mobileNav, stage])
+  useEffect(() => { document.documentElement.dataset.call = inCall ? '1' : '0' }, [inCall])
   return (
-    <div className={`shell${mobileNav && !stage ? ' nav-open' : ''}${members ? ' members-open' : ''}`}>
+    <div ref={shellRef} className={`shell${mobileNav && !stage ? ' nav-open' : ''}${members ? ' members-open' : ''}`}>
       <a className="skip" href="#main">Pular para o conteúdo</a>
       <div className="nav-col">
         <Rail />
@@ -76,6 +84,45 @@ function Shell() {
 try { if (localStorage.getItem('krata-debug') === '1') Object.assign(window, { __krata: { app: useApp, voice: useVoice, debug: voiceDebug } }) } catch { /* sem armazenamento */ }
 
 applyMotion()
+
+// Contêineres do layout nunca devem rolar. O navegador às vezes rola um deles sozinho
+// (ao focar um campo com o teclado aberto ou levar algo para a tela) e a interface
+// inteira fica deslocada, cortada na lateral. Isso desfaz na hora.
+const FIXED_LAYOUT = '.shell, .main, .view, .screen, .nav-col, #root, .modal-backdrop, .prisma-panel-veil'
+document.addEventListener('scroll', (e) => {
+  const el = e.target as Element
+  if (el instanceof HTMLElement && el.matches(FIXED_LAYOUT) && (el.scrollTop || el.scrollLeft)) { el.scrollTop = 0; el.scrollLeft = 0 }
+}, true)
+window.addEventListener('scroll', () => { if (scrollX || scrollY) window.scrollTo(0, 0) })
+
+// app Android desatualizado: avisa que tem versão nova do .apk
+if (window.KrataNative) {
+  try {
+    const have = window.KrataNative.version().split('.').map(Number)
+    const want = APP_VERSION.split('.').map(Number)
+    const older = want.some((v, i) => v > (have[i] || 0) && want.slice(0, i).every((w, j) => w === (have[j] || 0)))
+    if (older) setTimeout(() => toast('Tem versão nova do app do Krata. Baixe em Configurações → App Android.', 'info'), 4000)
+  } catch { /* ponte antiga */ }
+}
+
+// app Android: mantém a chamada viva com a tela desligada ou em outro app
+if (window.KrataNative) {
+  let was = false
+  useVoice.subscribe((v) => { const on = !!v.channelId; if (on !== was) { was = on; try { window.KrataNative?.setInCall(on) } catch { /* versão antiga do app */ } } })
+}
+
+// botão "voltar" do Android (app): fecha o que estiver por cima antes de sair do app
+;(window as unknown as { __krataBack?: () => boolean }).__krataBack = () => {
+  const s = useApp.getState()
+  const p = usePrisma.getState()
+  if (s.modal) { closeModal(); return true }
+  if (p.panel) { usePrisma.setState({ panel: null }); return true }
+  if (p.chatOpen) { usePrisma.setState({ chatOpen: false }); return true }
+  if (s.showMembers && matchMedia('(max-width: 820px)').matches) { set({ showMembers: false }); return true }
+  if (useVoice.getState().stageOpen && useVoice.getState().channelId) { useVoice.setState({ stageOpen: false }); return true }
+  if (s.userId && !s.mobileNav && matchMedia('(max-width: 820px)').matches) { set({ mobileNav: true }); return true }
+  return false
+}
 
 /**
  * Troca de tela com transição: a tela que sai continua visível por um instante

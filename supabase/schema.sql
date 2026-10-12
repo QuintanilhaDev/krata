@@ -541,7 +541,17 @@ begin
     update friendships set status = 'accepted' where id = v_row.id;
     return 'accepted';
   end if;
-  insert into friendships (requester_id, addressee_id) values (v_uid, v_other);
+  begin
+    insert into friendships (requester_id, addressee_id) values (v_uid, v_other);
+  exception when unique_violation then
+    -- os dois mandaram pedido no mesmo instante: vira amizade
+    update friendships set status = 'accepted'
+    where least(requester_id, addressee_id) = least(v_uid, v_other)
+      and greatest(requester_id, addressee_id) = greatest(v_uid, v_other)
+      and requester_id = v_other and status = 'pending';
+    if found then return 'accepted'; end if;
+    raise exception 'Pedido já enviado.';
+  end;
   return 'pending';
 end;
 $$;
