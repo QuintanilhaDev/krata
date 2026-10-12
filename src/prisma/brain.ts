@@ -39,7 +39,29 @@ export function clean(text: string): string {
   let t = fold(text).replace(/[^\p{L}\p{N}@#._'"\s-]/gu, ' ')
   t = t.replace(/\b(ei|hey|oi|ola|e ai)\s+prisma\b/g, ' ').replace(/\bpri[sz]ma\b/g, ' ')
   for (const [rx, to] of SLANG) t = t.replace(rx, to)
+  t = t.replace(FILLER, ' ').replace(FILLER_END, '')
+  t = t.replace(FORMAL, (w) => FORMAL_MAP[w] || w).replace(/\bentre (no|na|nos|nas|em)\b/g, 'entra $1')
   return t.replace(/\s+/g, ' ').trim()
+}
+
+// imperativo formal → o jeito falado com que ela foi treinada ("crie" → "cria")
+const FORMAL_MAP: Record<string, string> = {
+  crie: 'cria', criem: 'cria', adicione: 'adiciona', mande: 'manda', envie: 'envia', coloque: 'coloca', bote: 'bota', apague: 'apaga', abra: 'abre',
+  mude: 'muda', troque: 'troca', ligue: 'liga', desligue: 'desliga', saia: 'sai', faca: 'faz', tire: 'tira', mostre: 'mostra', delete: 'deleta',
+  remova: 'remove', aceite: 'aceita', recuse: 'recusa', compartilhe: 'compartilha', transmita: 'transmite', silencie: 'silencia', ative: 'ativa',
+  desative: 'desativa', renomeie: 'renomeia', fixe: 'fixa', edite: 'edita', procure: 'procura', pesquise: 'pesquisa', busque: 'busca', resuma: 'resume',
+  convide: 'convida', expulse: 'expulsa', promova: 'promove', chame: 'chama', escreva: 'escreve', diga: 'diz', fale: 'fala', leve: 'leva', va: 'vai',
+  volte: 'volta', reaja: 'reage', defina: 'define', deixe: 'deixa', monte: 'monta', gere: 'gera', copie: 'copia', desmute: 'desmuta', mute: 'muta',
+}
+const FORMAL = new RegExp(`\\b(${Object.keys(FORMAL_MAP).join('|')})\\b`, 'g')
+
+// educação e enchimento não mudam o pedido ("crie um chat novo pra mim, por favor")
+const FILLER = /\b(por favor|porfavor|por gentileza|faz favor|se puder|se possivel|pfvr?|pls|plz|rapidinho|ai pra mim)\b/g
+const FILLER_END = /\s+(pra|para) (mim|gente|nois|nos)\s*$/
+/** Tira o enchimento do fim da frase antes de extrair nomes e textos. */
+export function trimFiller(raw: string): string {
+  return raw.replace(/[\s,.!]*\b(por favor|porfavor|por gentileza|faz favor|se puder|pfvr?|pls|plz|rapidinho)\b[\s,.!?]*$/i, '')
+    .replace(/[\s,]+(pra|para) (mim|gente|nós|nois)[\s,.!?]*$/i, '').trim()
 }
 
 const WAKE = /\b(pri[sz]ma|prysma|brisma|prisma's)\b/i
@@ -298,7 +320,8 @@ const EMOJI: [RegExp, string][] = [
 ]
 
 /** Extrai os campos que cada pedido precisa. */
-export function extractSlots(intent: Intent, raw: string, world: World): Slots {
+export function extractSlots(intent: Intent, rawInput: string, world: World): Slots {
+  const raw = trimFiller(trimFiller(rawInput))
   const s: Slots = {}
   const f = fold(raw)
   const q = quoted(raw)

@@ -95,7 +95,7 @@ export const SEED: Record<Intent, string[]> = {
   whoami: ['qual meu nome de usuario', 'qual e o meu usuario', 'como eu me chamo aqui', 'qual meu arroba', 'qual o meu login'],
   join_voice: ['entra na call', 'entra na sala de voz', 'me coloca na call', 'entra no canal de voz {C}', 'bora pra call', 'conecta na voz', 'entra no {C} de voz', 'abre a call'],
   leave_voice: ['sai da chamada', 'para a chamada', 'desliga a call', 'sai da call', 'desliga a chamada', 'sai da sala de voz', 'desconecta da voz', 'encerra a ligacao', 'larga a call', 'quita da call'],
-  mute: ['me muta', 'silencia meu microfone', 'desliga meu microfone', 'muta o mic', 'fica no mute', 'mutar', 'corta meu audio'],
+  mute: ['muta meu microfone', 'muta meu mic', 'me muta', 'silencia meu microfone', 'desliga meu microfone', 'muta o mic', 'fica no mute', 'mutar', 'corta meu audio'],
   unmute: ['desmuta', 'liga meu microfone', 'tira o mute', 'ativa o mic', 'desmutar', 'volta meu microfone'],
   deafen: ['para de ouvir a call', 'ensurdece', 'desliga o audio da call', 'nao quero ouvir ninguem', 'desliga o fone', 'muta todo mundo pra mim'],
   undeafen: ['volta a ouvir', 'liga o audio da call', 'quero ouvir de novo', 'tira o ensurdecer', 'liga o fone'],

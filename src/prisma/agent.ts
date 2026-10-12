@@ -691,11 +691,15 @@ export async function channelMention(channelId: string, content: string) {
   if (!text) return
   if (training) await training
   const r = brain.classify(text)
-  if ((r.source === 'memory' || (r.confidence >= 0.5 && r.margin >= 0.2)) && !['chat', 'greet', 'thanks', 'how_are_you', 'who_are_you', 'help', 'time_now'].includes(r.intent)) {
-    void handle(text, 'text')
+  const talk = ['chat', 'greet', 'thanks', 'how_are_you', 'who_are_you', 'help', 'time_now'].includes(r.intent)
+  // pedido de ação (criar canal, mutar, adicionar alguém…): ela executa na hora
+  if (!talk && (r.source === 'memory' || (r.confidence >= 0.4 && r.margin >= 0.12))) {
+    await handle(text, 'text')
+    if (pending) pset({ chatOpen: true }) // ela perguntou algo (ex.: o nome do canal): abre o chat dela para responder
     return
   }
-  if (!pget().server?.channelBot) { toast('As respostas da Prisma nos canais precisam da chave de serviço do Supabase configurada na Vercel.', 'error'); return }
+  // sem a chave de serviço ela não consegue escrever no canal: responde no chat dela mesmo
+  if (!pget().server?.channelBot) { pset({ chatOpen: true }); void handle(text, 'text'); return }
   const s = get()
   const history = (s.messages[channelId]?.items || []).slice(-25).map((m) => `${m.bot ? 'Prisma' : s.profiles[m.author_id]?.display_name || 'alguém'}: ${(m.content || '[anexo]').slice(0, 300)}`).join('\n')
   pset({ mood: 'thinking' })
