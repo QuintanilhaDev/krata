@@ -482,7 +482,7 @@ function Composer({ channel, dropped }: { channel: Channel; dropped: File[] | nu
           />
           {over > -500 && <span className={`counter${over > 0 ? ' over' : ''}`} aria-live="polite">{-over}</span>}
           <div className="rel">
-            <button className="icon-btn gif-btn" data-tip="GIF" aria-label="Escolher GIF" aria-expanded={gifs} onClick={() => { setGifs((v) => !v); setPicker(false) }}>GIF</button>
+            <button className="icon-btn gif-btn" data-tip="GIF" aria-label="Escolher GIF" aria-expanded={gifs} onClick={() => { setGifs((v) => !v); setPicker(false) }}><span className="gif-badge">GIF</span></button>
             {gifs && <GifPicker onClose={() => setGifs(false)} onPick={(g) => { setGifs(false); void sendMessage(channel.id, g.url, [], replyId || null) }} />}
           </div>
           <div className="rel">

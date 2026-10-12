@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { useShallow } from 'zustand/react/shallow'
 import type { Channel, CustomEmoji, DmMember, Friendship, Member, Message, Profile, Role, Server, Status } from '../lib/types'
 
 export interface Nav { serverId: string | null; channelId: string | null }
@@ -83,6 +84,15 @@ export const initialState: AppState = {
 }
 
 export const useApp = create<AppState>(() => ({ ...initialState }))
+
+/** O "catálogo" do Krata (pessoas, conversas, servidores, presença) sem as mensagens e o
+ *  "digitando…": as listas laterais usam isto e não redesenham a cada mensagem que chega. */
+export function useDirectory(): AppState {
+  return useApp(useShallow((s) => ({
+    userId: s.userId, me: s.me, profiles: s.profiles, servers: s.servers, channels: s.channels, members: s.members,
+    roles: s.roles, dmMembers: s.dmMembers, friends: s.friends, unread: s.unread, online: s.online, nav: s.nav, homeTab: s.homeTab,
+  }))) as AppState
+}
 export const get = useApp.getState
 export const set = useApp.setState
 

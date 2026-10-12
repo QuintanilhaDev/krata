@@ -9,6 +9,7 @@ import { CropperHost } from './components/Cropper'
 import { AudioSink, CallPill, IncomingCall, VoiceBar, VoiceStage } from './components/Voice'
 import { ErrorBoundary, Gem, ShardField, Toasts } from './components/ui'
 import { applyMotion } from './lib/motion'
+import { watchSmoothness } from './lib/perf'
 import { useSwipeNav } from './lib/swipe'
 import { APP_VERSION } from './lib/native'
 import { isConfigured } from './lib/supabase'
@@ -28,6 +29,11 @@ function Shell() {
   const unreadTotal = useApp((s) => Object.values(s.unread).reduce((a, b) => a + b, 0))
   const inCall = useVoice((v) => !!v.channelId)
   const stage = useVoice((v) => !!v.channelId && v.stageOpen)
+  const sharing = useVoice((v) => v.screen)
+  // depois que tudo abriu, mede se o aparelho está acompanhando as animações
+  useEffect(() => { const t = setTimeout(() => watchSmoothness(6000), 2500); return () => clearTimeout(t) }, [])
+  // enquanto transmite a tela, o Krata alivia as animações para sobrar processador para o vídeo
+  useEffect(() => { document.documentElement.dataset.sharing = sharing ? '1' : '0' }, [sharing])
 
   const meId = useApp((s) => s.me?.id)
   useEffect(() => { const me = useApp.getState().me; if (me && window.KrataNative) void registerDevice(me) }, [meId])

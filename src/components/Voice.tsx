@@ -1,5 +1,5 @@
 import {
-  Activity, Headphones, HeadphoneOff, Maximize, Mic, MicOff, Minimize2, MonitorOff, MonitorUp, Phone, PhoneOff, PictureInPicture2, Settings2,
+  Activity, Eye, EyeOff, Headphones, HeadphoneOff, Maximize, Mic, MicOff, Minimize2, MonitorOff, MonitorUp, Phone, PhoneOff, PictureInPicture2, Repeat2, Settings2,
   SignalHigh, SignalLow, SignalMedium, Video, VideoOff, Volume2, VolumeX,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -9,7 +9,7 @@ import { AudioAppsPicker, canPickAudioApps, saveAudioApps, savedAudioApps } from
 import { mmss } from '../lib/time'
 import { channelTitle, closeModal, openModal, useApp } from '../store/app'
 import {
-  RES, acceptIncoming, canShareScreen, stopCalling, unlockAudio, declineIncoming, leaveVoice, screenBitrate, setVolume, startScreen, stopScreen, toggleCamera,
+  RES, acceptIncoming, canShareScreen, stopCalling, unlockAudio, declineIncoming, leaveVoice, screenBitrate, setVolume, startScreen, stopScreen, switchScreenSource, toggleCamera,
   toggleDeafen, toggleMute, updateScreenQuality, useVoice, type Resolution, type ScreenSettings, type StreamStats, type VoiceMember,
 } from '../voice/engine'
 import { Avatar, Modal } from './ui'
@@ -172,6 +172,12 @@ function Tile({ id, member, kind, focused, small }: TileProps) {
   const inbound = useVoice((v) => (trackId ? v.inbound[trackId] : undefined))
   const outbound = useVoice((v) => v.screenOut)
   const [showStats, setShowStats] = useState(false)
+  const surface = useVoice((v) => (isMe && kind === 'screen' ? v.screenSurface : null))
+  const rev = useVoice((v) => (isMe && kind === 'screen' ? v.screenRev : 0))
+  // a própria tela inteira dentro do Krata vira "tela dentro da tela" (efeito espelho), que pisca
+  // para quem assiste e gasta processador: a prévia fica escondida até a pessoa pedir
+  const [peek, setPeek] = useState(false)
+  const hidePreview = surface === 'monitor' && !peek
   const box = useRef<HTMLDivElement>(null)
   const hasVideo = !!stream && stream.getVideoTracks().length > 0 && (kind === 'screen' || member.camera)
   const name = profile?.display_name || 'Usuário'
@@ -195,7 +201,13 @@ function Tile({ id, member, kind, focused, small }: TileProps) {
     <div ref={box} className={`tile ${kind}${focused ? ' focused' : ''}${small ? ' small' : ''}${speaking && kind === 'user' ? ' speaking' : ''}`}
       onClick={() => useVoice.setState((v) => ({ focus: v.focus === id ? null : id }))}
       onDoubleClick={fullscreen} role="group" aria-label={kind === 'screen' ? `Tela de ${name}` : name}>
-      {hasVideo ? <VideoEl stream={stream!} mirror={isMe && kind === 'user'} contain={kind === 'screen'} /> : (
+      {hasVideo && hidePreview ? (
+        <div className="tile-face own-screen">
+          <MonitorUp size={small ? 28 : 44} />
+          {!small && <span className="muted">Você está transmitindo a tela inteira. A prévia fica escondida para não criar o efeito espelho.</span>}
+          {!small && <button className="btn ghost small" onClick={(e) => { e.stopPropagation(); setPeek(true) }}><Eye size={15} /> Mostrar prévia</button>}
+        </div>
+      ) : hasVideo ? <VideoEl key={`${trackId}-${rev}`} stream={stream!} mirror={isMe && kind === 'user'} contain={kind === 'screen'} /> : (
         <div className="tile-face" style={{ ['--accent' as string]: profile?.accent_color || '#00A86B' }}>
           <Avatar profile={profile} name={name} seed={member.user_id} size={small ? 44 : 96} speaking={speaking} />
           {kind === 'screen' && <span className="muted">Carregando transmissão…</span>}
@@ -217,6 +229,7 @@ function Tile({ id, member, kind, focused, small }: TileProps) {
               <input type="range" min={0} max={1} step={0.05} value={volume} aria-label={`Volume de ${name}`} onChange={(e) => setVolume(volKey, Number(e.target.value))} />
             </label>
           )}
+          {surface === 'monitor' && peek && <button className="icon-btn" onClick={() => setPeek(false)} aria-label="Esconder prévia" data-tip="Esconder prévia"><EyeOff size={17} /></button>}
           {kind === 'screen' && <button className={`icon-btn${showStats ? ' on' : ''}`} onClick={() => setShowStats((v) => !v)} aria-label="Mostrar qualidade da transmissão" aria-pressed={showStats} data-tip="Qualidade"><Activity size={17} /></button>}
           {hasVideo && 'pictureInPictureEnabled' in document && <button className="icon-btn" onClick={pip} aria-label="Janela flutuante" data-tip="Janela flutuante"><PictureInPicture2 size={17} /></button>}
           {hasVideo && <button className="icon-btn" onClick={fullscreen} aria-label="Tela cheia" data-tip="Tela cheia"><Maximize size={17} /></button>}
@@ -417,6 +430,7 @@ export function ScreenShareModal() {
       </div>
       <footer className="modal-foot">
         {sharing && <button className="btn danger" onClick={() => { stopScreen(); closeModal() }}><MonitorOff size={17} /> Parar transmissão</button>}
+        {sharing && supported && !window.KrataNative && <button className="btn ghost" disabled={busy} onClick={() => { setBusy(true); void switchScreenSource().then((ok) => { setBusy(false); if (ok) closeModal() }) }}><Repeat2 size={17} /> Trocar o que compartilho</button>}
         <span className="grow" />
         <button className="btn ghost" onClick={closeModal}>{supported ? 'Cancelar' : 'Entendi'}</button>
         {supported && <button className="btn primary" disabled={busy} onClick={() => void go()}>{sharing ? <><Settings2 size={17} /> Aplicar</> : <><MonitorUp size={17} /> Escolher o que compartilhar</>}</button>}

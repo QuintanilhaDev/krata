@@ -4,6 +4,8 @@ import '@fontsource/unbounded/800.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { applyPerf } from './lib/perf'
 import './styles/app.css'
 
+applyPerf()
 createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>)

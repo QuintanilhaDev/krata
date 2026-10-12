@@ -7,7 +7,7 @@ import type { Channel, Profile, Status } from '../lib/types'
 import {
   acceptFriend, byPosition, leaveGroup, leaveServer, navigate, openDm, removeFriend, sendFriendRequest, updateProfile,
 } from '../store/actions'
-import { channelTitle, dmPartnerIds, friendIds, openModal, presenceOf, set, useApp, type AppState } from '../store/app'
+import { channelTitle, dmPartnerIds, friendIds, openModal, presenceOf, set, useApp, useDirectory, type AppState } from '../store/app'
 import { joinVoice, toggleDeafen, toggleMute, useVoice, type VoiceMember } from '../voice/engine'
 import { PrismaButton, PrismaEntry } from './Prisma'
 import { Avatar, Gem, STATUS_LABEL, StatusDot, useClickOutside } from './ui'
@@ -20,7 +20,7 @@ export function Rail() {
   const channels = useApp((s) => s.channels)
   const unread = useApp((s) => s.unread)
   const nav = useApp((s) => s.nav)
-  const state = useApp()
+  const state = useDirectory()
   const dmUnread = channels.filter((c) => !c.server_id && unread[c.id] > 0)
   const totalDm = dmUnread.reduce((n, c) => n + unread[c.id], 0)
   const serverUnread = (id: string) => channels.some((c) => c.server_id === id && unread[c.id] > 0)
@@ -99,7 +99,7 @@ export function UserPanel() {
 
 // ============================================================ barra lateral: conversas
 function HomeSidebar() {
-  const state = useApp()
+  const state = useDirectory()
   const { channels, unread, nav, friends, userId } = state
   const pending = friends.filter((f) => f.status === 'pending' && f.addressee_id === userId).length
   const dms = useMemo(() => channels.filter((c) => !c.server_id).sort((a, b) => (b.last_message_at || b.created_at).localeCompare(a.last_message_at || a.created_at)), [channels])
@@ -247,7 +247,7 @@ function PersonRow({ p, status, tag, onClick, index = 0 }: { p: Profile; status:
 }
 
 export function MembersPanel({ channel }: { channel: Channel }) {
-  const state = useApp()
+  const state = useDirectory()
   const sections = useMemo(() => {
     const out: { label: string; rows: { p: Profile; status: Status | 'offline'; tag?: string }[] }[] = []
     const row = (id: string, tag?: string) => ({ p: state.profiles[id], status: presenceOf(state, id), tag })
@@ -295,7 +295,7 @@ const TABS: { id: AppState['homeTab']; label: string }[] = [
 const SHORT: Record<string, string> = { online: 'Online', all: 'Todos', pending: 'Pedidos', add: 'Adicionar' }
 
 export function FriendsView() {
-  const state = useApp()
+  const state = useDirectory()
   const { homeTab: tab, friends, userId, profiles } = state
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)

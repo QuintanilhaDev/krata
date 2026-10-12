@@ -41,6 +41,10 @@ interface VoiceState {
   micStream: MediaStream | null
   camStream: MediaStream | null
   screenStream: MediaStream | null
+  /** o que está sendo transmitido: 'monitor' (tela inteira), 'window', 'browser' (aba) */
+  screenSurface: string | null
+  /** muda quando a fonte da transmissão é trocada (a prévia religa) */
+  screenRev: number
   peers: Record<string, PeerView>
   rosters: Record<string, VoiceMember[]>
   speaking: Record<string, boolean>
@@ -75,7 +79,7 @@ const within = <T,>(p: Promise<T>, ms: number): Promise<T | undefined> => Promis
 
 const initial: VoiceState = {
   channelId: null, scopeId: null, status: 'idle', muted: false, deafened: false, camera: false, screen: false,
-  screenSettings: savedScreen(), micStream: null, camStream: null, screenStream: null, peers: {}, rosters: {},
+  screenSettings: savedScreen(), micStream: null, camStream: null, screenStream: null, screenSurface: null, screenRev: 0, peers: {}, rosters: {},
   speaking: {}, volumes: savedVolumes(), ping: null, screenOut: null, inbound: {}, focus: null, stageOpen: false, incoming: null, outgoing: null, joinedAt: 0, audioBlocked: false,
 }
 export const useVoice = create<VoiceState>(() => ({ ...initial }))
@@ -304,7 +308,9 @@ function boostSdp(sdp: string): string {
     const rtp = /^a=rtpmap:(\d+) (VP8|VP9|H264|AV1)\//i.exec(l)
     if (inVideo && rtp) wanted.add(rtp[1])
   }
-  const extra = 'x-google-start-bitrate=6000;x-google-min-bitrate=1500'
+  // só um início mais alto; sem "mínimo" forçado: com internet fraca do outro lado, forçar
+  // banda causava perda de pacotes, quadros congelando e a imagem piscando
+  const extra = 'x-google-start-bitrate=4000'
   inVideo = false
   for (const l of lines) {
     if (l.startsWith('m=')) inVideo = l.startsWith('m=video')
@@ -611,35 +617,11 @@ export async function toggleCamera() {
 // ------------------------------------------------------------------ compartilhamento de tela
 export const isMobileDevice = () => typeof navigator !== 'undefined' && (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform)))
 
-// ordem de codecs escolhida no começo da transmissão (pela placa de vídeo de quem transmite)
-let screenCodecOrder: string[] | null = null
-async function pickScreenCodecs(s: ScreenSettings, w: number, h: number): Promise<string[]> {
-  // celular: só o H.264 tem codificador por hardware em todos os aparelhos
-  if (isMobileDevice()) return ['video/h264', 'video/vp8', 'video/vp9', 'video/av1']
-  const small = h <= 1080
-  const fallback = small && s.mode === 'motion' ? ['video/h264', 'video/vp9', 'video/av1', 'video/vp8'] : ['video/vp9', 'video/av1', 'video/h264', 'video/vp8']
-  const mc = navigator.mediaCapabilities
-  if (!mc?.encodingInfo) return fallback
-  const rated: { c: string; score: number }[] = []
-  for (const c of ['video/av1', 'video/vp9', 'video/h264']) {
-    try {
-      const r = await mc.encodingInfo({ type: 'webrtc', video: { contentType: c, width: w, height: h, bitrate: screenBitrate(s), framerate: s.fps } } as MediaEncodingConfiguration)
-      if (!r.supported) continue
-      // por hardware (eficiente) e fluido primeiro; entre iguais, o mais moderno comprime melhor
-      const quality = c === 'video/av1' ? 3 : c === 'video/vp9' ? 2 : 1
-      rated.push({ c, score: (r.powerEfficient ? 100 : 0) + (r.smooth ? 10 : 0) + quality })
-    } catch { /* este navegador não responde para webrtc */ }
-  }
-  if (!rated.length) return fallback
-  // sem nenhum por hardware em resolução alta, o VP9 em software ainda é o mais equilibrado
-  if (!rated.some((r) => r.score >= 100) && !small) return fallback
-  return [...rated.sort((a, b) => b.score - a.score).map((r) => r.c), ...fallback.filter((c) => !rated.some((r) => r.c === c))]
-}
-
 function preferCodecs(tx: RTCRtpTransceiver, s: ScreenSettings, remoteMobile = false) {
-  const small = s.resolution === '1080' || s.resolution === '720'
-  let order = screenCodecOrder
-    ?? (small && s.mode === 'motion' ? ['video/h264', 'video/vp9', 'video/av1', 'video/vp8'] : ['video/vp9', 'video/av1', 'video/h264', 'video/vp8'])
+  // computador: VP9 — o mais estável para tela (o H.264 por hardware de algumas placas de vídeo
+  // faz a imagem piscar em transmissão de tela). Celular transmitindo: H.264 (hardware do aparelho).
+  let order = isMobileDevice() ? ['video/h264', 'video/vp8', 'video/vp9', 'video/av1'] : ['video/vp9', 'video/vp8', 'video/h264', 'video/av1']
+  void s
   // quem assiste no celular decodifica H.264 por hardware: sem isso a tela trava em poucos quadros
   if (remoteMobile) order = ['video/h264', 'video/vp8', ...order.filter((c) => c !== 'video/h264' && c !== 'video/vp8')]
   const rank = (mime: string) => { const i = order.indexOf(mime.toLowerCase()); return i === -1 ? order.length : i }
@@ -670,7 +652,7 @@ function tuneScreenSender(sender: RTCRtpSender, s: ScreenSettings, peerId?: stri
     params.encodings[0].maxBitrate = caps ? caps.bitrate : screenBitrate(s)
     params.encodings[0].maxFramerate = s.fps
     if (caps) params.encodings[0].scaleResolutionDownBy = caps.scale
-    ;(params as RTCRtpSendParameters & { degradationPreference?: string }).degradationPreference = s.mode === 'text' ? 'maintain-resolution' : 'maintain-framerate'
+    ;(params as RTCRtpSendParameters & { degradationPreference?: string }).degradationPreference = s.mode === 'text' ? 'maintain-resolution' : isMobileDevice() ? 'maintain-framerate' : 'balanced'
     void sender.setParameters(params).catch(() => {})
   } catch { /* opcional */ }
 }
@@ -731,13 +713,66 @@ export async function startScreen(settings: ScreenSettings): Promise<boolean> {
   if (vget().status !== 'connected') { stream.getTracks().forEach((t) => t.stop()); return false }
   if (vget().screenStream) stopScreen()
   const video = stream.getVideoTracks()[0]
-  try { video.contentHint = settings.mode === 'text' ? 'detail' : 'motion' } catch { /* opcional */ }
-  { const st = video.getSettings(); screenCodecOrder = await pickScreenCodecs(settings, st.width || RES[settings.resolution].w, st.height || RES[settings.resolution].h).catch(() => null) }
+  const surface = prepareScreenTracks(stream, settings)
   video.onended = () => { if (vget().screenStream === stream) stopScreen() }
-  vset({ screen: true, screenStream: stream, screenSettings: settings, stageOpen: true, focus: `${app().userId}:screen` })
+  vset({ screen: true, screenStream: stream, screenSurface: surface, screenSettings: settings, stageOpen: true, focus: `${app().userId}:screen` })
   for (const p of peers.values()) addScreen(p, stream)
   void announce()
   sounds.stream()
+  return true
+}
+
+/** Ajusta as trilhas recém-capturadas; devolve o tipo de superfície (tela inteira, janela, aba). */
+function prepareScreenTracks(stream: MediaStream, settings: ScreenSettings): string {
+  const video = stream.getVideoTracks()[0]
+  try { video.contentHint = settings.mode === 'text' ? 'detail' : 'motion' } catch { /* opcional */ }
+  const surface = window.KrataNative ? 'monitor' : (video.getSettings() as MediaTrackSettings & { displaySurface?: string }).displaySurface || 'monitor'
+  const audio = stream.getAudioTracks()[0]
+  // som do computador inteiro: se o navegador não sabe tirar o som do próprio Krata, o eco da
+  // chamada voltaria para quem fala. O cancelamento de eco do navegador remove a chamada do som.
+  if (audio && !window.KrataNative && settings.excludeCall !== false && surface !== 'browser') {
+    const st = audio.getSettings() as MediaTrackSettings & { restrictOwnAudio?: boolean }
+    if (!st.restrictOwnAudio) {
+      void audio.applyConstraints({ echoCancellation: true, noiseSuppression: false, autoGainControl: false } as MediaTrackConstraints).catch(() => {})
+      if (!echoHinted) { echoHinted = true; toast('Som do computador ligado sem eco da chamada. Se alguém ainda ouvir a própria voz, use fone de ouvido.', 'info') }
+    }
+  }
+  return surface
+}
+let echoHinted = false
+
+/** Troca o que está sendo compartilhado (outra tela, janela ou aba) sem parar a transmissão. */
+export async function switchScreenSource(): Promise<boolean> {
+  const s = vget()
+  const stream = s.screenStream
+  if (!stream || window.KrataNative || !navigator.mediaDevices?.getDisplayMedia) return false
+  const settings = s.screenSettings
+  let fresh: MediaStream
+  try {
+    fresh = await navigator.mediaDevices.getDisplayMedia({
+      video: videoConstraints(settings),
+      audio: settings.audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2, ...(settings.excludeCall !== false ? { suppressLocalAudioPlayback: true, restrictOwnAudio: true } : {}) } as MediaTrackConstraints : false,
+      systemAudio: 'include', surfaceSwitching: 'include', selfBrowserSurface: 'exclude',
+    } as DisplayMediaStreamOptions)
+  } catch { return false }
+  if (vget().screenStream !== stream) { fresh.getTracks().forEach((t) => t.stop()); return false }
+  const video = fresh.getVideoTracks()[0]
+  const audio = fresh.getAudioTracks()[0] || null
+  const surface = prepareScreenTracks(fresh, settings)
+  // a MediaStream continua a mesma (mesmo id anunciado); só as trilhas mudam
+  const old = stream.getTracks()
+  for (const p of peers.values()) {
+    if (p.screenVideo) await p.screenVideo.sender.replaceTrack(video).catch(() => {})
+    if (p.screenAudio) await p.screenAudio.replaceTrack(audio).catch(() => {})
+    else if (audio) {
+      try { p.screenAudio = p.pc.addTrack(audio, stream) } catch { /* fechado */ }
+    }
+  }
+  old.forEach((t) => { t.onended = null; stream.removeTrack(t); t.stop() })
+  stream.addTrack(video)
+  if (audio) stream.addTrack(audio)
+  video.onended = () => { if (vget().screenStream === stream) stopScreen() }
+  vset((v) => ({ screenSurface: surface, screenRev: v.screenRev + 1 }))
   return true
 }
 
@@ -746,7 +781,7 @@ export function stopScreen() {
   if (!s.screenStream) return
   for (const p of peers.values()) removeScreen(p)
   s.screenStream.getTracks().forEach((t) => { t.onended = null; t.stop() })
-  vset((v) => ({ screen: false, screenStream: null, screenOut: null, focus: v.focus === `${app().userId}:screen` ? null : v.focus }))
+  vset((v) => ({ screen: false, screenStream: null, screenSurface: null, screenOut: null, focus: v.focus === `${app().userId}:screen` ? null : v.focus }))
   void announce()
 }
 

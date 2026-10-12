@@ -12,12 +12,13 @@ import {
   loadMembers, navigate, openDm, regenerateInvite, removeEmoji, removeFriend, saveChannel, searchMessages, sendFriendRequest,
   setMemberRole, signOut, transferServer, updateProfile, updateServer,
 } from '../store/actions'
-import { channelTitle, closeModal, friendIds, openModal, presenceOf, toast, useApp, type ModalState } from '../store/app'
+import { channelTitle, closeModal, friendIds, openModal, presenceOf, toast, useApp, useDirectory, type ModalState } from '../store/app'
 import { joinVoice, reloadMic, saveVoiceSettings, voiceSettings } from '../voice/engine'
 import { Markdown, plain } from './Markdown'
 import { Avatar, ErrorBoundary, Field, Modal, STATUS_LABEL, Spinner, Tilt } from './ui'
 import { PasswordInput, Strength, passwordError } from './Auth'
 import { motionLevel, setMotion } from '../lib/motion'
+import { perfChoice, setPerfChoice, type PerfChoice } from '../lib/perf'
 import { AppDownload, AppInstallSteps, AppNotificationSettings } from './AppDownload'
 import { UpdateRow } from './AppUpdate'
 import { cropImage } from './Cropper'
@@ -296,7 +297,7 @@ function ProfileFace({ p, status }: { p: Pick<Profile, 'id' | 'display_name' | '
 }
 
 function ProfileCard({ userId }: Of<'profile'>) {
-  const state = useApp()
+  const state = useDirectory()
   const p = state.profiles[userId]
   if (!p) return null
   const me = userId === state.userId
@@ -331,6 +332,7 @@ function Settings({ tab: initialTab }: Of<'settings'>) {
   const [tab, setTab] = useState<'perfil' | 'voz' | 'avisos' | 'visual' | 'prisma' | 'app' | 'conta'>(
     (['perfil', 'voz', 'avisos', 'visual', 'prisma', 'app', 'conta'].includes(initialTab || '') ? initialTab : 'perfil') as 'perfil')
   const [motion, setMotionState] = useState(motionLevel())
+  const [perf, setPerfState] = useState<PerfChoice>(perfChoice())
   const [f, setF] = useState({ display_name: me.display_name, bio: me.bio, avatar_url: me.avatar_url, banner_url: me.banner_url, accent_color: me.accent_color, pronoun: me.pronoun ?? null })
   const [busy, setBusy] = useState(false)
   const [pass, setPass] = useState({ next: '', confirm: '', busy: false, touched: false })
@@ -368,7 +370,7 @@ function Settings({ tab: initialTab }: Of<'settings'>) {
     <Modal title="Configurações" onClose={closeModal} wide>
       <div className="tabs pad" role="tablist">
         {(['perfil', 'prisma', 'voz', 'avisos', 'visual', 'app', 'conta'] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={`tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>{{ perfil: 'Perfil', prisma: 'Prisma', voz: 'Voz e vídeo', avisos: 'Avisos', visual: 'Animações', app: 'App Android', conta: 'Conta' }[t]}</button>
+          <button key={t} role="tab" aria-selected={tab === t} className={`tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>{{ perfil: 'Perfil', prisma: 'Prisma', voz: 'Voz e vídeo', avisos: 'Avisos', visual: 'Visual', app: 'App Android', conta: 'Conta' }[t]}</button>
         ))}
       </div>
       <div className="modal-body tall">
@@ -448,6 +450,16 @@ function Settings({ tab: initialTab }: Of<'settings'>) {
             </div>
           </fieldset>
         )}
+        {tab === 'visual' && (
+          <fieldset className="choice">
+            <legend>Desempenho</legend>
+            <div className="seg two grid2">
+              {([['auto', 'Automático', 'Ajusta ao seu aparelho'], ['high', 'Máximo', 'Todos os efeitos, sem economia'], ['mid', 'Equilibrado', 'Efeitos 3D mais leves'], ['low', 'Leve', 'Para aparelhos mais simples']] as const).map(([v, t, d]) => (
+                <button key={v} type="button" aria-pressed={perf === v} className={perf === v ? 'on' : ''} onClick={() => { setPerfChoice(v); setPerfState(v) }}><strong>{t}</strong><span>{d}</span></button>
+              ))}
+            </div>
+          </fieldset>
+        )}
         {tab === 'conta' && (
           <>
             <form className="pass-form" onSubmit={changePassword}>
@@ -479,7 +491,7 @@ function Settings({ tab: initialTab }: Of<'settings'>) {
 
 // ============================================================ conversas
 function NewDm() {
-  const state = useApp()
+  const state = useDirectory()
   const friends = friendIds(state).map((id) => state.profiles[id]).filter(Boolean).sort((a, b) => a.display_name.localeCompare(b.display_name, 'pt-BR'))
   const [picked, setPicked] = useState<string[]>([])
   const [name, setName] = useState('')
@@ -522,7 +534,7 @@ function NewDm() {
 }
 
 function Switcher() {
-  const state = useApp()
+  const state = useDirectory()
   const [q, setQ] = useState('')
   const [index, setIndex] = useState(0)
   const items = useMemo(() => {
