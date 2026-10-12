@@ -22,6 +22,8 @@ export interface VoiceMember {
   screen: boolean
   streams: { mic?: string; cam?: string; screen?: string }
   session?: string
+  /** celular/tablet: recebe a tela em H.264 (decodificação por hardware) e no máximo 1080p */
+  mobile?: boolean
 }
 export interface PeerView { state: RTCPeerConnectionState; streams: Record<string, MediaStream> }
 export interface StreamStats { width: number; height: number; fps: number; kbps: number; codec: string; limit?: string }
@@ -159,6 +161,7 @@ async function announce() {
     channel_id: s.channelId, muted: s.muted || !s.micStream, deafened: s.deafened, camera: s.camera, screen: s.screen,
     streams: { mic: s.micStream?.id, cam: s.camStream?.id, screen: s.screenStream?.id },
     session: mySession,
+    mobile: isMobileDevice(),
   }
   try { await sc.channel.track(meta) } catch { /* reconectando */ }
 }
@@ -582,11 +585,39 @@ export async function toggleCamera() {
 }
 
 // ------------------------------------------------------------------ compartilhamento de tela
-function preferCodecs(tx: RTCRtpTransceiver, s: ScreenSettings) {
-  // Acima de 1080p o VP9 vem primeiro: o H.264 negociado pelo navegador costuma ficar preso a níveis baixos.
-  // Até 1080p com prioridade em fluidez, o H.264 aproveita a aceleração da placa de vídeo.
+export const isMobileDevice = () => typeof navigator !== 'undefined' && (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.platform)))
+
+// ordem de codecs escolhida no começo da transmissão (pela placa de vídeo de quem transmite)
+let screenCodecOrder: string[] | null = null
+async function pickScreenCodecs(s: ScreenSettings, w: number, h: number): Promise<string[]> {
+  // celular: só o H.264 tem codificador por hardware em todos os aparelhos
+  if (isMobileDevice()) return ['video/h264', 'video/vp8', 'video/vp9', 'video/av1']
+  const small = h <= 1080
+  const fallback = small && s.mode === 'motion' ? ['video/h264', 'video/vp9', 'video/av1', 'video/vp8'] : ['video/vp9', 'video/av1', 'video/h264', 'video/vp8']
+  const mc = navigator.mediaCapabilities
+  if (!mc?.encodingInfo) return fallback
+  const rated: { c: string; score: number }[] = []
+  for (const c of ['video/av1', 'video/vp9', 'video/h264']) {
+    try {
+      const r = await mc.encodingInfo({ type: 'webrtc', video: { contentType: c, width: w, height: h, bitrate: screenBitrate(s), framerate: s.fps } } as MediaEncodingConfiguration)
+      if (!r.supported) continue
+      // por hardware (eficiente) e fluido primeiro; entre iguais, o mais moderno comprime melhor
+      const quality = c === 'video/av1' ? 3 : c === 'video/vp9' ? 2 : 1
+      rated.push({ c, score: (r.powerEfficient ? 100 : 0) + (r.smooth ? 10 : 0) + quality })
+    } catch { /* este navegador não responde para webrtc */ }
+  }
+  if (!rated.length) return fallback
+  // sem nenhum por hardware em resolução alta, o VP9 em software ainda é o mais equilibrado
+  if (!rated.some((r) => r.score >= 100) && !small) return fallback
+  return [...rated.sort((a, b) => b.score - a.score).map((r) => r.c), ...fallback.filter((c) => !rated.some((r) => r.c === c))]
+}
+
+function preferCodecs(tx: RTCRtpTransceiver, s: ScreenSettings, remoteMobile = false) {
   const small = s.resolution === '1080' || s.resolution === '720'
-  const order = small && s.mode === 'motion' ? ['video/h264', 'video/vp9', 'video/av1', 'video/vp8'] : ['video/vp9', 'video/av1', 'video/h264', 'video/vp8']
+  let order = screenCodecOrder
+    ?? (small && s.mode === 'motion' ? ['video/h264', 'video/vp9', 'video/av1', 'video/vp8'] : ['video/vp9', 'video/av1', 'video/h264', 'video/vp8'])
+  // quem assiste no celular decodifica H.264 por hardware: sem isso a tela trava em poucos quadros
+  if (remoteMobile) order = ['video/h264', 'video/vp8', ...order.filter((c) => c !== 'video/h264' && c !== 'video/vp8')]
   const rank = (mime: string) => { const i = order.indexOf(mime.toLowerCase()); return i === -1 ? order.length : i }
   for (const caps of [RTCRtpReceiver.getCapabilities?.('video'), RTCRtpSender.getCapabilities?.('video')]) {
     if (!caps) continue
@@ -596,12 +627,25 @@ function preferCodecs(tx: RTCRtpTransceiver, s: ScreenSettings) {
     } catch { /* tenta a outra lista */ }
   }
 }
-function tuneScreenSender(sender: RTCRtpSender, s: ScreenSettings) {
+const remoteIsMobile = (peerId: string) => {
+  const s = vget()
+  return !!((s.scopeId && s.rosters[s.scopeId]) || []).find((m) => m.user_id === peerId)?.mobile
+}
+/** Para celular: no máximo 1080p no lado menor e bitrate que o aparelho aguenta. */
+function mobileCaps(track: MediaStreamTrack, s: ScreenSettings): { scale: number; bitrate: number } {
+  const st = track.getSettings()
+  const short = Math.min(st.width || 1920, st.height || 1080)
+  return { scale: short > 1080 ? short / 1080 : 1, bitrate: Math.min(screenBitrate(s), s.fps >= 60 ? 9_000_000 : 6_500_000) }
+}
+
+function tuneScreenSender(sender: RTCRtpSender, s: ScreenSettings, peerId?: string) {
   try {
     const params = sender.getParameters()
     if (!params.encodings?.length) return
-    params.encodings[0].maxBitrate = screenBitrate(s)
+    const caps = peerId && remoteIsMobile(peerId) && sender.track ? mobileCaps(sender.track, s) : null
+    params.encodings[0].maxBitrate = caps ? caps.bitrate : screenBitrate(s)
     params.encodings[0].maxFramerate = s.fps
+    if (caps) params.encodings[0].scaleResolutionDownBy = caps.scale
     ;(params as RTCRtpSendParameters & { degradationPreference?: string }).degradationPreference = s.mode === 'text' ? 'maintain-resolution' : 'maintain-framerate'
     void sender.setParameters(params).catch(() => {})
   } catch { /* opcional */ }
@@ -610,11 +654,13 @@ function addScreen(p: Peer, stream: MediaStream) {
   const s = vget().screenSettings
   const video = stream.getVideoTracks()[0]
   if (!video) return
-  const enc: RTCRtpEncodingParameters = { maxBitrate: screenBitrate(s), maxFramerate: s.fps, priority: 'high', networkPriority: 'high' }
+  const mobilePeer = remoteIsMobile(p.id)
+  const caps = mobilePeer ? mobileCaps(video, s) : null
+  const enc: RTCRtpEncodingParameters = { maxBitrate: caps ? caps.bitrate : screenBitrate(s), maxFramerate: s.fps, priority: 'high', networkPriority: 'high', ...(caps && caps.scale > 1 ? { scaleResolutionDownBy: caps.scale } : {}) }
   try { p.screenVideo = p.pc.addTransceiver(video, { direction: 'sendonly', streams: [stream], sendEncodings: [enc] }) }
   catch { p.screenVideo = p.pc.addTransceiver(video, { direction: 'sendonly', streams: [stream], sendEncodings: [{ maxBitrate: enc.maxBitrate, maxFramerate: enc.maxFramerate }] }) }
-  preferCodecs(p.screenVideo, s)
-  tuneScreenSender(p.screenVideo.sender, s)
+  preferCodecs(p.screenVideo, s, mobilePeer)
+  tuneScreenSender(p.screenVideo.sender, s, p.id)
   const audio = stream.getAudioTracks()[0]
   if (audio) {
     p.screenAudio = p.pc.addTrack(audio, stream)
@@ -662,6 +708,7 @@ export async function startScreen(settings: ScreenSettings): Promise<boolean> {
   if (vget().screenStream) stopScreen()
   const video = stream.getVideoTracks()[0]
   try { video.contentHint = settings.mode === 'text' ? 'detail' : 'motion' } catch { /* opcional */ }
+  { const st = video.getSettings(); screenCodecOrder = await pickScreenCodecs(settings, st.width || RES[settings.resolution].w, st.height || RES[settings.resolution].h).catch(() => null) }
   video.onended = () => { if (vget().screenStream === stream) stopScreen() }
   vset({ screen: true, screenStream: stream, screenSettings: settings, stageOpen: true, focus: `${app().userId}:screen` })
   for (const p of peers.values()) addScreen(p, stream)
@@ -688,7 +735,7 @@ export async function updateScreenQuality(settings: ScreenSettings) {
   if (!video) return
   try { video.contentHint = settings.mode === 'text' ? 'detail' : 'motion' } catch { /* opcional */ }
   try { await video.applyConstraints(videoConstraints(settings)) } catch { /* a captura mantém o que conseguir */ }
-  for (const p of peers.values()) if (p.screenVideo) tuneScreenSender(p.screenVideo.sender, settings)
+  for (const p of peers.values()) if (p.screenVideo) tuneScreenSender(p.screenVideo.sender, settings, p.id)
 }
 
 // ------------------------------------------------------------------ quem está falando

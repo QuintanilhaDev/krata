@@ -60,11 +60,34 @@ public class KrataService extends Service {
     private DisplayManager.DisplayListener displayListener;
 
     private int targetShort = 1080;
+    private boolean video = false;
+    private android.media.MediaCodec encoder;
+    private android.view.Surface encoderSurface;
+    private Thread drainThread;
+    private volatile boolean draining = false;
+    private final java.util.concurrent.ExecutorService jpegPool = java.util.concurrent.Executors.newFixedThreadPool(2);
+    private final java.util.concurrent.atomic.AtomicInteger jpegBusy = new java.util.concurrent.atomic.AtomicInteger();
+    // 3 bitmaps reaproveitados (no máximo 2 comprimindo + 1 sendo copiado): sem lixo de memória a cada quadro
+    private final Bitmap[] pool = new Bitmap[3];
+    private final boolean[] poolBusy = new boolean[3];
+
+    private synchronized int takeBitmap(int w, int h) {
+        for (int i = 0; i < pool.length; i++) {
+            if (poolBusy[i]) continue;
+            if (pool[i] == null || pool[i].getWidth() != w || pool[i].getHeight() != h) {
+                if (pool[i] != null) pool[i].recycle();
+                pool[i] = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+            }
+            poolBusy[i] = true;
+            return i;
+        }
+        return -1;
+    }
+    private synchronized void giveBitmap(int i) { poolBusy[i] = false; }
     private int fps = 30;
     private int width, height, dpi;
     private long lastFrameAt = 0;
-    private Bitmap scratch;
-    private final ByteArrayOutputStream jpeg = new ByteArrayOutputStream(512 * 1024);
+
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
@@ -78,7 +101,9 @@ public class KrataService extends Service {
             int code = intent.getIntExtra("code", 0);
             Intent data = intent.getParcelableExtra("data");
             String quality = intent.getStringExtra("quality");
-            fps = Math.max(5, Math.min(30, intent.getIntExtra("fps", 30)));
+            video = "video".equals(ScreenHub.mode);
+            // vídeo por hardware aguenta 60 qps; o modo antigo (JPEG) fica em até 30
+            fps = Math.max(5, Math.min(video ? 60 : 30, intent.getIntExtra("fps", 30)));
             boolean withAudio = intent.getBooleanExtra("audio", true);
             targetShort = qualityToShortEdge(quality);
             sharing = true;
@@ -101,7 +126,7 @@ public class KrataService extends Service {
         if ("720".equals(q)) return 720;
         if ("1440".equals(q)) return 1440;
         if ("2160".equals(q)) return 2160;
-        if ("source".equals(q)) return 100000;
+        if ("source".equals(q)) return 1080; // "automático" no celular: 1080p no lado menor (fluido e nítido)
         return 1080;
     }
 
@@ -167,9 +192,13 @@ public class KrataService extends Service {
         }, handler);
 
         measure();
-        reader = newReader();
+        android.view.Surface target;
+        if (video) {
+            try { startEncoder(); target = encoderSurface; }
+            catch (Throwable t) { video = false; ScreenHub.mode = "jpeg"; reader = newReader(); target = reader.getSurface(); }
+        } else { reader = newReader(); target = reader.getSurface(); }
         display = projection.createVirtualDisplay("krata", width, height, dpi,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader.getSurface(), null, handler);
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, target, null, handler);
 
         // girou o celular: ajusta o tamanho da captura
         final DisplayManager dm = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
@@ -181,6 +210,13 @@ public class KrataService extends Service {
                 int ow = width, oh = height;
                 measure();
                 if (ow == width && oh == height) return;
+                if (video) {
+                    // girou: recria o codificador no tamanho novo
+                    stopEncoder();
+                    try { startEncoder(); display.resize(width, height, dpi); display.setSurface(encoderSurface); }
+                    catch (Throwable t) { stopCapture(); updateForeground(); }
+                    return;
+                }
                 ImageReader old = reader;
                 reader = newReader();
                 display.resize(width, height, dpi);
@@ -202,8 +238,9 @@ public class KrataService extends Service {
         wm.getDefaultDisplay().getRealMetrics(m);
         int w = m.widthPixels, h = m.heightPixels;
         float scale = Math.min(1f, targetShort / (float) Math.min(w, h));
-        width = Math.max(2, Math.round(w * scale) & ~1);
-        height = Math.max(2, Math.round(h * scale) & ~1);
+        int align = video ? 16 : 2;
+        width = Math.max(align, Math.round(w * scale) / align * align);
+        height = Math.max(align, Math.round(h * scale) / align * align);
         dpi = Math.max(120, Math.round(m.densityDpi * scale));
     }
 
@@ -221,29 +258,121 @@ public class KrataService extends Service {
             image = ir.acquireLatestImage();
             if (image == null) return;
             long now = System.currentTimeMillis();
-            if (now - lastFrameAt < 1000 / fps) return;
+            // os dois compressores ocupados: pula este quadro em vez de acumular atraso
+            if (now - lastFrameAt < 1000 / fps || jpegBusy.get() >= 2) return;
             lastFrameAt = now;
             Image.Plane plane = image.getPlanes()[0];
             ByteBuffer buf = plane.getBuffer();
             int pixelStride = plane.getPixelStride();
             int rowStride = plane.getRowStride();
-            int w = image.getWidth(), h = image.getHeight();
+            final int w = image.getWidth(), h = image.getHeight();
             int padded = rowStride / pixelStride;
-            if (scratch == null || scratch.getWidth() != padded || scratch.getHeight() != h) {
-                if (scratch != null) scratch.recycle();
-                scratch = Bitmap.createBitmap(padded, h, Bitmap.Config.ARGB_8888);
-            }
+            final int slot = takeBitmap(padded, h);
+            if (slot < 0) return;
+            final Bitmap bmp = pool[slot];
             buf.rewind();
-            scratch.copyPixelsFromBuffer(buf);
-            Bitmap out = padded == w ? scratch : Bitmap.createBitmap(scratch, 0, 0, w, h);
-            jpeg.reset();
-            out.compress(Bitmap.CompressFormat.JPEG, Math.min(w, h) > 1100 ? 72 : 80, jpeg);
-            if (out != scratch) out.recycle();
-            ScreenHub.publishFrame(jpeg.toByteArray());
+            bmp.copyPixelsFromBuffer(buf);
+            image.close();
+            image = null;
+            jpegBusy.incrementAndGet();
+            jpegPool.execute(new Runnable() {
+                @Override public void run() {
+                    try {
+                        Bitmap out = bmp.getWidth() == w ? bmp : Bitmap.createBitmap(bmp, 0, 0, w, h);
+                        ByteArrayOutputStream os = new ByteArrayOutputStream(256 * 1024);
+                        out.compress(Bitmap.CompressFormat.JPEG, Math.min(w, h) > 1100 ? 62 : 72, os);
+                        if (out != bmp) out.recycle();
+                        ScreenHub.publishFrame(os.toByteArray());
+                    } catch (Throwable ignored) {
+                    } finally { giveBitmap(slot); jpegBusy.decrementAndGet(); }
+                }
+            });
         } catch (Throwable ignored) {
         } finally {
             if (image != null) image.close();
         }
+    }
+
+    // ------------------------------------------------------------- vídeo por hardware (H.264)
+    private void startEncoder() throws Exception {
+        android.media.MediaFormat f = android.media.MediaFormat.createVideoFormat("video/avc", width, height);
+        f.setInteger(android.media.MediaFormat.KEY_COLOR_FORMAT, android.media.MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+        // a conexão aqui é local (dentro do celular): bitrate alto para chegar no WebRTC sem perder detalhe
+        int bitrate = (int) Math.min(40_000_000L, (long) width * height * fps / 4);
+        f.setInteger(android.media.MediaFormat.KEY_BIT_RATE, Math.max(4_000_000, bitrate));
+        f.setInteger(android.media.MediaFormat.KEY_FRAME_RATE, fps);
+        f.setFloat("max-fps-to-encoder", fps);
+        f.setInteger(android.media.MediaFormat.KEY_I_FRAME_INTERVAL, 2);
+        f.setLong(android.media.MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 1_000_000L / 10); // tela parada: repete o quadro
+        f.setInteger(android.media.MediaFormat.KEY_PRIORITY, 0); // tempo real
+        android.media.MediaCodec c = android.media.MediaCodec.createEncoderByType("video/avc");
+        try {
+            android.media.MediaFormat low = new android.media.MediaFormat(f);
+            if (Build.VERSION.SDK_INT >= 30) low.setInteger(android.media.MediaFormat.KEY_LOW_LATENCY, 1);
+            c.configure(low, null, null, android.media.MediaCodec.CONFIGURE_FLAG_ENCODE);
+        } catch (Throwable t) {
+            c.reset();
+            c.configure(f, null, null, android.media.MediaCodec.CONFIGURE_FLAG_ENCODE);
+        }
+        encoderSurface = c.createInputSurface();
+        c.start();
+        encoder = c;
+        draining = true;
+        final android.media.MediaCodec enc = c;
+        drainThread = new Thread(new Runnable() {
+            @Override public void run() {
+                android.media.MediaCodec.BufferInfo info = new android.media.MediaCodec.BufferInfo();
+                while (draining) {
+                    try {
+                        if (ScreenHub.keyRequested) {
+                            ScreenHub.keyRequested = false;
+                            android.os.Bundle b = new android.os.Bundle();
+                            b.putInt(android.media.MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0);
+                            enc.setParameters(b);
+                        }
+                        int idx = enc.dequeueOutputBuffer(info, 20_000);
+                        if (idx == android.media.MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                            android.media.MediaFormat of = enc.getOutputFormat();
+                            ByteBuffer s0 = of.getByteBuffer("csd-0"), s1 = of.getByteBuffer("csd-1");
+                            if (s0 != null) {
+                                byte[] a = new byte[s0.remaining()]; s0.get(a);
+                                byte[] b2 = new byte[0];
+                                if (s1 != null) { b2 = new byte[s1.remaining()]; s1.get(b2); }
+                                byte[] both = new byte[a.length + b2.length];
+                                System.arraycopy(a, 0, both, 0, a.length);
+                                System.arraycopy(b2, 0, both, a.length, b2.length);
+                                ScreenHub.setCsd(both);
+                            }
+                        } else if (idx >= 0) {
+                            ByteBuffer ob = enc.getOutputBuffer(idx);
+                            if (ob != null && info.size > 0) {
+                                byte[] data = new byte[info.size];
+                                ob.position(info.offset);
+                                ob.get(data, 0, info.size);
+                                if ((info.flags & android.media.MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) ScreenHub.setCsd(data);
+                                else ScreenHub.pushVideo(data, (info.flags & android.media.MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0, info.presentationTimeUs);
+                            }
+                            enc.releaseOutputBuffer(idx, false);
+                        }
+                    } catch (Throwable t) {
+                        if (!draining) break;
+                        try { Thread.sleep(10); } catch (InterruptedException e) { break; }
+                    }
+                }
+            }
+        }, "krata-encoder");
+        drainThread.setPriority(Thread.MAX_PRIORITY);
+        drainThread.start();
+    }
+
+    private void stopEncoder() {
+        draining = false;
+        try { if (drainThread != null) drainThread.join(300); } catch (InterruptedException ignored) {}
+        drainThread = null;
+        try { if (encoder != null) { encoder.stop(); encoder.release(); } } catch (Throwable ignored) {}
+        encoder = null;
+        try { if (encoderSurface != null) encoderSurface.release(); } catch (Throwable ignored) {}
+        encoderSurface = null;
     }
 
     private void startAudio() {
@@ -295,6 +424,7 @@ public class KrataService extends Service {
         displayListener = null;
         try { if (display != null) display.release(); } catch (Throwable ignored) {}
         display = null;
+        stopEncoder();
         try { if (reader != null) reader.close(); } catch (Throwable ignored) {}
         reader = null;
         try { if (projection != null) projection.stop(); } catch (Throwable ignored) {}

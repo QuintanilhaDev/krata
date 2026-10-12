@@ -51,7 +51,7 @@ import java.util.Map;
 public class MainActivity extends Activity {
     static final String APP_URL = "https://krata-henna.vercel.app/";
     static final String APP_HOST = Uri.parse(APP_URL).getHost();
-    static final String VERSION = "1.1.0";
+    static final String VERSION = "1.2.0";
     static volatile boolean visible = false;
 
     private static final int REQ_SCREEN = 41;
@@ -330,6 +330,13 @@ public class MainActivity extends Activity {
             if (on) SyncService.start(MainActivity.this); else SyncService.stop(MainActivity.this);
         }
 
+        /** "video" = H.264 por hardware (rápido); "jpeg" = modo compatível. */
+        @JavascriptInterface public void setScreenMode(String mode) { ScreenHub.mode = "video".equals(mode) ? "video" : "jpeg"; }
+
+        @JavascriptInterface public String screenCodec() { return ScreenHub.codec; }
+
+        @JavascriptInterface public String screenMode() { return ScreenHub.mode; }
+
         @JavascriptInterface public void stopScreen() {
             if (!trusted()) return;
             startService(new Intent(MainActivity.this, KrataService.class).setAction(KrataService.ACTION_SCREEN_STOP));
@@ -451,6 +458,23 @@ public class MainActivity extends Activity {
                 if (f == null) return new WebResourceResponse("text/plain", "utf-8", 204, "No Content", h, new ByteArrayInputStream(new byte[0]));
                 h.put("X-Frame-Id", String.valueOf(f[1]));
                 return new WebResourceResponse("image/jpeg", null, 200, "OK", h, new ByteArrayInputStream((byte[]) f[0]));
+            }
+            if ("/__krata/video".equals(path)) {
+                if (!"live".equals(ScreenHub.state)) return new WebResourceResponse("text/plain", "utf-8", 410, "Gone", h, new ByteArrayInputStream(new byte[0]));
+                long after = 0;
+                try { after = Long.parseLong(u.getQueryParameter("after")); } catch (Exception ignored) {}
+                java.util.List<Object[]> chunks = ScreenHub.awaitVideo(after, 700);
+                // [tamanho int32][chave int8][pts int64][seq int64] + dados, em sequência
+                java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                java.io.DataOutputStream out = new java.io.DataOutputStream(bo);
+                try {
+                    for (Object[] c : chunks) {
+                        byte[] d = (byte[]) c[3];
+                        out.writeInt(d.length); out.writeByte((Boolean) c[1] ? 1 : 0); out.writeLong((Long) c[2]); out.writeLong((Long) c[0]); out.write(d);
+                    }
+                } catch (java.io.IOException ignored) {}
+                h.put("X-Codec", ScreenHub.codec);
+                return new WebResourceResponse("application/octet-stream", null, 200, "OK", h, new ByteArrayInputStream(bo.toByteArray()));
             }
             if ("/__krata/audio".equals(path)) {
                 byte[] a = ScreenHub.takeAudio(120);
