@@ -8,6 +8,8 @@ final class ScreenHub {
     /** idle | asking | live | denied | error */
     static volatile String state = "idle";
     static volatile boolean inCall = false;
+    /** apps cujo som entra na transmissão (vazio = todos, menos o próprio Krata) */
+    static volatile java.util.List<String> audioApps = new java.util.ArrayList<String>();
 
     private static byte[] frame;
     private static long frameId;

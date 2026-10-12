@@ -20,15 +20,19 @@ import { PasswordInput, Strength, passwordError } from './Auth'
 import { motionLevel, setMotion } from '../lib/motion'
 import { AppDownload, AppInstallSteps, AppNotificationSettings } from './AppDownload'
 import { UpdateRow } from './AppUpdate'
+import { cropImage } from './Cropper'
 import { PrismaSettings } from './Prisma'
 import { ScreenShareModal } from './Voice'
 
 type Of<T extends ModalState['type']> = Extract<ModalState, { type: T }>
 
-async function pickImage(file: File | undefined, userId: string): Promise<string | null> {
+async function pickImage(file: File | undefined, userId: string, shape: 'circle' | 'rounded' | 'wide' = 'circle'): Promise<string | null> {
   if (!file) return null
   if (!file.type.startsWith('image/')) { toast('Escolha um arquivo de imagem.', 'error'); return null }
   if (file.size > MAX_AVATAR_BYTES) { toast('A imagem pode ter até 10 MB.', 'error'); return null }
+  const cropped = await cropImage(file, shape, shape === 'wide' ? 'Ajustar banner' : shape === 'rounded' ? 'Ajustar ícone' : 'Ajustar foto')
+  if (!cropped) return null
+  file = cropped
   try { return await uploadFile('avatars', userId, file).promise } catch (e) { toast(errorText(e), 'error'); return null }
 }
 
@@ -44,7 +48,7 @@ function ImagePick({ url, name, seed, square, onChange, label }: { url: string |
       </button>
       <input ref={input} type="file" accept="image/*" hidden onChange={async (e) => {
         const f = e.target.files?.[0]; e.target.value = ''
-        setBusy(true); const u = await pickImage(f, uid); setBusy(false)
+        setBusy(true); const u = await pickImage(f, uid, square ? 'rounded' : 'circle'); setBusy(false)
         if (u) onChange(u)
       }} />
       {url && <button type="button" className="link" onClick={() => onChange(null)}>Remover imagem</button>}
@@ -396,7 +400,7 @@ function Settings({ tab: initialTab }: Of<'settings'>) {
                 <div className="row-gap">
                   <button className="btn ghost small" onClick={() => banner.current?.click()}><ImagePlus size={15} /> Escolher imagem</button>
                   {f.banner_url && <button className="link" onClick={() => setF({ ...f, banner_url: null })}>Remover</button>}
-                  <input ref={banner} type="file" accept="image/*" hidden onChange={async (e) => { const file = e.target.files?.[0]; e.target.value = ''; const u = await pickImage(file, me.id); if (u) setF((x) => ({ ...x, banner_url: u })) }} />
+                  <input ref={banner} type="file" accept="image/*" hidden onChange={async (e) => { const file = e.target.files?.[0]; e.target.value = ''; const u = await pickImage(file, me.id, 'wide'); if (u) setF((x) => ({ ...x, banner_url: u })) }} />
                 </div>
               </div>
             </div>

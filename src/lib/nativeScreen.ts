@@ -11,7 +11,7 @@ async function state(): Promise<string> {
   try { return window.KrataNative?.screenState() || 'idle' } catch { return 'idle' }
 }
 
-export async function nativeScreenStream(settings: { resolution: Resolution; fps: number; audio: boolean }, onEnded: () => void): Promise<MediaStream | null> {
+export async function nativeScreenStream(settings: { resolution: Resolution; fps: number; audio: boolean; apps?: string[] }, onEnded: () => void): Promise<MediaStream | null> {
   const bridge = window.KrataNative
   if (!bridge) return null
   // vídeo por hardware quando o WebView decodifica H.264; senão, o modo compatível (JPEG)
@@ -20,6 +20,7 @@ export async function nativeScreenStream(settings: { resolution: Resolution; fps
     try { fast = !!(await VideoDecoder.isConfigSupported({ codec: 'avc1.42E01F' })).supported } catch { fast = false }
   }
   try { bridge.setScreenMode?.(fast ? 'video' : 'jpeg') } catch { /* app antigo */ }
+  try { bridge.setScreenAudioApps?.((settings.apps || []).join(',')) } catch { /* app antigo */ }
   bridge.startScreen(settings.resolution, settings.fps, settings.audio)
   // espera a pessoa aceitar no aviso do Android
   const t0 = Date.now()

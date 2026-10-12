@@ -4,10 +4,12 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
+import { audioCtx } from '../lib/sound'
+import { AudioAppsPicker, canPickAudioApps, saveAudioApps, savedAudioApps } from './AudioApps'
 import { mmss } from '../lib/time'
 import { channelTitle, closeModal, openModal, useApp } from '../store/app'
 import {
-  RES, acceptIncoming, canShareScreen, unlockAudio, declineIncoming, leaveVoice, screenBitrate, setVolume, startScreen, stopScreen, toggleCamera,
+  RES, acceptIncoming, canShareScreen, stopCalling, unlockAudio, declineIncoming, leaveVoice, screenBitrate, setVolume, startScreen, stopScreen, toggleCamera,
   toggleDeafen, toggleMute, updateScreenQuality, useVoice, type Resolution, type ScreenSettings, type StreamStats, type VoiceMember,
 } from '../voice/engine'
 import { Avatar, Modal } from './ui'
@@ -51,6 +53,38 @@ function AudioEl({ stream, volume, muted }: { stream: MediaStream; volume: numbe
   useEffect(() => { if (ref.current) ref.current.volume = Math.max(0, Math.min(1, volume)) }, [volume])
   return <audio ref={ref} autoPlay playsInline muted={muted} />
 }
+
+/**
+ * Som das transmissões: passa por um ganho próprio, então dá para aumentar até 200%
+ * (e o volume funciona até no iPhone, onde o volume do elemento de áudio é travado).
+ */
+function BoostedAudio({ stream, volume, muted }: { stream: MediaStream; volume: number; muted: boolean }) {
+  const ref = useRef<HTMLAudioElement>(null)
+  const gain = useRef<GainNode | null>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    // o elemento (mudo) mantém o áudio da conexão fluindo; quem toca é o ganho
+    el.srcObject = stream
+    void el.play().catch(() => {})
+    let src: MediaStreamAudioSourceNode | null = null
+    try {
+      const ctx = audioCtx()
+      src = ctx.createMediaStreamSource(stream)
+      const g = ctx.createGain()
+      src.connect(g).connect(ctx.destination)
+      gain.current = g
+    } catch { gain.current = null }
+    return () => { try { src?.disconnect(); gain.current?.disconnect() } catch { /* já solto */ } gain.current = null }
+  }, [stream])
+  useEffect(() => {
+    const g = gain.current
+    const v = muted ? 0 : Math.max(0, Math.min(2, volume))
+    if (g) g.gain.setTargetAtTime(v, g.context.currentTime, 0.03)
+    else if (ref.current) { ref.current.muted = muted; ref.current.volume = Math.min(1, v) }
+  }, [volume, muted, stream])
+  return <audio ref={ref} autoPlay playsInline muted={!!gain.current || muted} />
+}
 export function AudioSink() {
   const peers = useVoice((v) => v.peers)
   const volumes = useVoice((v) => v.volumes)
@@ -61,7 +95,9 @@ export function AudioSink() {
       {Object.entries(peers).flatMap(([uid, view]) =>
         Object.values(view.streams).filter((s) => s.getAudioTracks().length > 0).map((s) => {
           const isScreen = members.find((m) => m.user_id === uid)?.streams.screen === s.id
-          return <AudioEl key={`${uid}-${s.id}`} stream={s} volume={volumes[isScreen ? `${uid}:screen` : uid] ?? 1} muted={deafened} />
+          return isScreen
+            ? <BoostedAudio key={`${uid}-${s.id}`} stream={s} volume={volumes[`${uid}:screen`] ?? 1} muted={deafened} />
+            : <AudioEl key={`${uid}-${s.id}`} stream={s} volume={volumes[uid] ?? 1} muted={deafened} />
         }))}
     </div>
   )
@@ -87,6 +123,35 @@ function StatsBox({ st, sending }: { st?: StreamStats | null; sending?: boolean 
       <span>{st.kbps >= 1000 ? `${(st.kbps / 1000).toFixed(1)} Mbps` : `${Math.round(st.kbps)} kbps`}</span>
       {st.codec && <span>{st.codec}</span>}
       {sending && limit && <span className="warn">{limit}</span>}
+    </div>
+  )
+}
+
+/** Volume da transmissão: sempre à vista no canto da tela compartilhada (0 a 200%). */
+function ScreenVolume({ volKey, name }: { volKey: string; name: string }) {
+  const volume = useVoice((v) => v.volumes[volKey] ?? 1)
+  const [open, setOpen] = useState(false)
+  const last = useRef(1)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('pointerdown', close)
+    return () => document.removeEventListener('pointerdown', close)
+  }, [open])
+  const pct = Math.round(volume * 100)
+  return (
+    <div ref={ref} className={`screen-vol${open ? ' open' : ''}`} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+      <button className="screen-vol-btn" onClick={() => setOpen((o) => !o)} aria-label={`Volume da transmissão de ${name}: ${pct}%`} aria-expanded={open}>
+        {volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}<span>{pct}%</span>
+      </button>
+      {open && (
+        <div className="screen-vol-pop">
+          <button className="icon-btn" onClick={() => { if (volume > 0) { last.current = volume; setVolume(volKey, 0) } else setVolume(volKey, last.current || 1) }} aria-label={volume === 0 ? 'Ativar som da transmissão' : 'Silenciar transmissão'}>{volume === 0 ? <VolumeX size={17} /> : <Volume2 size={17} />}</button>
+          <input type="range" min={0} max={2} step={0.05} value={volume} aria-label={`Volume da transmissão de ${name}`} onChange={(e) => setVolume(volKey, Number(e.target.value))} />
+          <span className="screen-vol-pct">{pct}%</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -137,6 +202,7 @@ function Tile({ id, member, kind, focused, small }: TileProps) {
         </div>
       )}
       {connecting && <span className="tile-state">Conectando…</span>}
+      {kind === 'screen' && !isMe && <ScreenVolume volKey={volKey} name={name} />}
       <div className="tile-label">
         {kind === 'screen' && <span className="live-tag">AO VIVO</span>}
         <span>{kind === 'screen' ? (isMe ? 'Sua tela' : `Tela de ${name}`) : isMe ? `${name} (você)` : name}</span>
@@ -145,10 +211,10 @@ function Tile({ id, member, kind, focused, small }: TileProps) {
       {showStats && kind === 'screen' && <StatsBox st={isMe ? outbound : inbound} sending={isMe} />}
       {!small && (
         <div className="tile-tools" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-          {!isMe && (
+          {!isMe && kind === 'user' && (
             <label className="vol" title="Volume">
               {volume === 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
-              <input type="range" min={0} max={1} step={0.05} value={volume} aria-label={`Volume de ${kind === 'screen' ? 'transmissão de ' : ''}${name}`} onChange={(e) => setVolume(volKey, Number(e.target.value))} />
+              <input type="range" min={0} max={1} step={0.05} value={volume} aria-label={`Volume de ${name}`} onChange={(e) => setVolume(volKey, Number(e.target.value))} />
             </label>
           )}
           {kind === 'screen' && <button className={`icon-btn${showStats ? ' on' : ''}`} onClick={() => setShowStats((v) => !v)} aria-label="Mostrar qualidade da transmissão" aria-pressed={showStats} data-tip="Qualidade"><Activity size={17} /></button>}
@@ -193,6 +259,7 @@ export function VoiceStage() {
   const title = useApp((s) => channelTitle(s, channel))
   const server = useApp((s) => s.servers.find((x) => x.id === channel?.server_id))
   const roster = useMembers()
+  const outgoing = useVoice((v) => v.outgoing)
   const local = useVoice(useShallow((v) => ({ muted: v.muted, deafened: v.deafened, camera: v.camera, screen: v.screen })))
   const members = useMemo(() => {
     const mine: VoiceMember = { user_id: me, channel_id: channelId || '', ...local, streams: {} }
@@ -217,7 +284,7 @@ export function VoiceStage() {
         <button className="icon-btn" onClick={() => useVoice.setState({ stageOpen: false })} aria-label="Minimizar chamada e voltar ao chat" data-tip="Voltar ao chat" data-tip-side="left"><Minimize2 size={19} /></button>
       </header>
       <div className={`stage-body${focused ? ' has-focus' : ''}`}>
-        {status === 'connecting' ? <div className="stage-wait"><span className="pulse-ring" /><p>Conectando à sala…</p></div> : (
+        {status === 'connecting' ? <div className="stage-wait"><span className="pulse-ring" /><p>Conectando à sala…</p><button className="btn ghost small" onClick={() => void leaveVoice()}>Cancelar</button></div> : outgoing && members.length === 1 ? <Calling /> : (
           <>
             {focused && <div className="stage-focus"><Tile key={focused.id} {...focused} focused /></div>}
             <div className={`stage-grid n${Math.min(rest.length, 9)}${focused ? ' strip' : ''}`}>
@@ -232,11 +299,31 @@ export function VoiceStage() {
   )
 }
 
+/** Tela de "Chamando…" para quem ligou, com o botão de cancelar. */
+function Calling() {
+  const outgoing = useVoice((v) => v.outgoing)!
+  const people = useApp(useShallow((s) => outgoing.ids.map((id) => s.profiles[id]).filter(Boolean)))
+  const first = people[0]
+  const names = people.map((p) => p.display_name)
+  return (
+    <div className="calling" role="status">
+      <div className="incoming-avatar"><span className="pulse-ring" /><span className="pulse-ring late" /><Avatar profile={first} name={first?.display_name} seed={outgoing.ids[0]} size={96} /></div>
+      <h2>{names.length > 1 ? `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}` : names[0] || 'Chamando'}</h2>
+      <p className="muted">Chamando…</p>
+      <div className="calling-actions">
+        <button className="btn ghost small" onClick={() => stopCalling(false)}>Parar de chamar</button>
+        <button className="ctl hang big" onClick={() => stopCalling(true)} aria-label="Cancelar chamada"><PhoneOff size={24} /></button>
+      </div>
+    </div>
+  )
+}
+
 /** Barra de chamada na lateral, acima do painel do usuário. */
 export function VoiceBar() {
   const channelId = useVoice((v) => v.channelId)
   const status = useVoice((v) => v.status)
   const stageOpen = useVoice((v) => v.stageOpen)
+  const calling = useVoice((v) => !!v.outgoing)
   const channel = useApp((s) => s.channels.find((c) => c.id === channelId))
   const title = useApp((s) => channelTitle(s, channel))
   const server = useApp((s) => s.servers.find((x) => x.id === channel?.server_id))
@@ -244,7 +331,7 @@ export function VoiceBar() {
   return (
     <div className="voice-bar">
       <button className="voice-bar-info" onClick={() => useVoice.setState({ stageOpen: !stageOpen })} aria-label="Abrir a chamada">
-        <strong className={status}>{status === 'connecting' ? 'Conectando…' : 'Voz conectada'}</strong>
+        <strong className={status}>{status === 'connecting' ? 'Conectando…' : calling ? 'Chamando…' : 'Voz conectada'}</strong>
         <span>{server ? `${title} · ${server.name}` : title}</span>
       </button>
       <Ping compact />
@@ -274,7 +361,7 @@ export function ScreenShareModal() {
   const sharing = useVoice((v) => v.screen)
   const saved = useVoice((v) => v.screenSettings)
   const stats = useVoice((v) => v.screenOut)
-  const [s, setS] = useState<ScreenSettings>(saved)
+  const [s, setS] = useState<ScreenSettings>({ ...saved, apps: savedAudioApps() })
   const [busy, setBusy] = useState(false)
   const supported = canShareScreen()
   const mbps = (screenBitrate(s) / 1_000_000).toFixed(0)
@@ -313,8 +400,15 @@ export function ScreenShareModal() {
             </fieldset>
             {!sharing && (
               <label className="switch-row">
-                <span><strong>Transmitir o som</strong><span className="muted">O navegador pergunta se quer incluir o áudio da aba ou do sistema.</span></span>
+                <span><strong>Transmitir o som</strong><span className="muted">{window.KrataNative ? 'O som do celular vai junto com a tela.' : 'O navegador pergunta se quer incluir o som de uma aba ou de todo o computador.'}</span></span>
                 <input type="checkbox" className="switch" checked={s.audio} onChange={(e) => setS({ ...s, audio: e.target.checked })} />
+              </label>
+            )}
+            {!sharing && s.audio && canPickAudioApps() && <AudioAppsPicker value={s.apps || []} onChange={(apps) => { setS({ ...s, apps }); saveAudioApps(apps) }} />}
+            {!sharing && s.audio && !window.KrataNative && (
+              <label className="switch-row">
+                <span><strong>Sem o som da chamada</strong><span className="muted">Quem assiste não ouve a própria voz de volta. Para escolher o som de um app só no computador, compartilhe a aba ou a janela dele.</span></span>
+                <input type="checkbox" className="switch" checked={s.excludeCall !== false} onChange={(e) => setS({ ...s, excludeCall: e.target.checked })} />
               </label>
             )}
             <p className="fine">Usa até {mbps} Mbps de envio. {sharing && stats?.width ? `Agora: ${stats.width}×${stats.height} a ${stats.fps} fps.` : ''}</p>

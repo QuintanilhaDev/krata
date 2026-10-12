@@ -23,7 +23,7 @@ export function useUpdate(active = true): UpdateInfo | null {
     if (!active || !window.KrataNative?.updateInfo) return
     const tick = () => setInfo(readUpdate())
     const busy = () => { const s = readUpdate()?.state; return s === 'downloading' || s === 'installing' || s === 'permission' }
-    let t = setTimeout(function loop() { tick(); t = setTimeout(loop, busy() ? 400 : 4000) }, 800)
+    let t = setTimeout(function loop() { tick(); t = setTimeout(loop, busy() ? 300 : 1000) }, 300)
     window.addEventListener('krata-update', tick)
     return () => { clearTimeout(t); window.removeEventListener('krata-update', tick) }
   }, [active])
@@ -57,7 +57,7 @@ export function UpdateBanner() {
       </span>
       {!working && (
         <>
-          <button className="btn primary small" onClick={() => { window.KrataNative?.installUpdate?.(); setForced(true) }}>{info.state === 'error' ? 'Tentar de novo' : `Atualizar${info.size ? ` · ${mb(info.size)}` : ''}`}</button>
+          <button className="btn primary small" onClick={() => { window.KrataNative?.installUpdate?.(); setForced(true); window.dispatchEvent(new Event('krata-update')) }}>{info.state === 'error' ? 'Tentar de novo' : `Atualizar${info.size ? ` · ${mb(info.size)}` : ''}`}</button>
           <button className="icon-btn" aria-label="Depois" onClick={() => { setHidden(info.versionName!); setForced(false); try { localStorage.setItem(SNOOZE, info.versionName!) } catch { /* sem armazenamento */ } }}><X size={16} /></button>
         </>
       )}

@@ -1,4 +1,5 @@
 import { Fragment, memo, useMemo, useState, type ReactNode } from 'react'
+import { gifUrl } from '../lib/gifs'
 import { safeMediaUrl } from '../lib/supabase'
 import { openModal, useApp } from '../store/app'
 
@@ -101,9 +102,12 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
   const me = useApp((s) => s.me?.username || '')
   const users = useMemo(() => Object.fromEntries(Object.values(profiles).map((p) => [p.username, p.id])), [profiles])
   const big = text.length <= 120 && ONLY_EMOJI.test(text) && !/^\s*$/.test(text) && !/^[\d\s#*]+$/.test(text)
-  const nodes = useMemo(() => blocks(text, { users, emojis, me }), [text, users, emojis, me])
+  const gif = gifUrl(text.trim())
+  const nodes = useMemo(() => (gif ? null : blocks(text, { users, emojis, me })), [text, users, emojis, me, gif])
+  // mensagem que é só um GIF: mostra o GIF animado no lugar do link
+  if (gif) return <div className="md"><img className="gif-embed" src={gif} alt="GIF" loading="lazy" onClick={(e) => e.stopPropagation()} /></div>
   return <div className={`md${big ? ' jumbo' : ''}`}>{nodes}</div>
 })
 
 /** Texto curto de uma linha para prévias (respostas, notificações). */
-export const plain = (text: string) => text.replace(/```[\s\S]*?```/g, '[código]').replace(/<:([a-z0-9_]+):[0-9a-f-]{36}>/g, ':$1:').replace(/[*_~|`]/g, '').replace(/\s+/g, ' ').trim()
+export const plain = (text: string) => gifUrl(text.trim()) ? 'GIF' : text.replace(/```[\s\S]*?```/g, '[código]').replace(/<:([a-z0-9_]+):[0-9a-f-]{36}>/g, ':$1:').replace(/[*_~|`]/g, '').replace(/\s+/g, ' ').trim()

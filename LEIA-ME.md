@@ -93,6 +93,12 @@ No computador e no Android ela ouve o tempo todo (o navegador pede o microfone u
 ouvir continuamente: toque no botão flutuante dela para falar (segure para abrir o chat escrito). Em qualquer canal,
 escreva `@prisma` + pergunta e ela responde ali para todo mundo.
 
+### GIFs
+
+Rode `supabase/gifs.sql` (favoritos salvos na conta). Para a busca, cadastre na Vercel uma chave da **Tenor**
+(`TENOR_API_KEY`: no Google Cloud Console ative a "Tenor API" e crie uma chave de API) ou da **GIPHY** (`GIPHY_API_KEY`).
+Sem chave, o botão GIF continua mostrando os favoritos.
+
 ### 8. App Android (.apk)
 
 O arquivo `public/krata.apk` já vai junto com o site: o botão **Baixar .apk** aparece na tela de login e em

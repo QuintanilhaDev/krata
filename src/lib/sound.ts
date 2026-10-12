@@ -28,5 +28,6 @@ export const sounds = {
   mute: () => tone(330, 0, 0.09, 0.06, 'triangle'),
   unmute: () => tone(660, 0, 0.09, 0.06, 'triangle'),
   stream: () => { tone(659, 0, 0.1); tone(880, 0.08, 0.1); tone(1175, 0.16, 0.22) },
+  ringback: () => { tone(440, 0, 0.9, 0.035); tone(480, 0, 0.9, 0.035) },
   ring: () => { tone(740, 0, 0.22, 0.08); tone(932, 0.24, 0.22, 0.08); tone(1109, 0.48, 0.4, 0.08) },
 }

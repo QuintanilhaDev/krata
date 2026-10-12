@@ -175,6 +175,7 @@ final class Notifier {
 
     private static CharSequence text(JSONObject m) {
         String t = m.optString("content", "").trim();
+        if (t.matches("^https://(media\\d?\\.tenor\\.com|c\\.tenor\\.com|media\\d?\\.giphy\\.com|i\\.giphy\\.com)/\\S+$")) return "🎞️ GIF";
         t = EMOJI.matcher(t).replaceAll(":$1:").replaceAll("\\*\\*|__|~~|`{1,3}", "").replaceAll("\\|\\|(.+?)\\|\\|", "▒▒▒");
         int files = m.optInt("files", 0);
         if (t.isEmpty()) return files > 1 ? "📎 Enviou " + files + " arquivos" : "📎 Enviou um arquivo";

@@ -377,12 +377,21 @@ public class KrataService extends Service {
 
     private void startAudio() {
         try {
-            AudioPlaybackCaptureConfiguration cfg = new AudioPlaybackCaptureConfiguration.Builder(projection)
-                    .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
-                    .addMatchingUsage(AudioAttributes.USAGE_GAME)
-                    .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
-                    .excludeUid(Process.myUid()) // não manda de volta a voz de quem está na chamada
-                    .build();
+            AudioPlaybackCaptureConfiguration.Builder cb = new AudioPlaybackCaptureConfiguration.Builder(projection);
+            java.util.List<Integer> uids = new java.util.ArrayList<Integer>();
+            for (String pkg : ScreenHub.audioApps) {
+                try { int uid = getPackageManager().getApplicationInfo(pkg, 0).uid; if (uid != Process.myUid() && !uids.contains(uid)) uids.add(uid); } catch (Exception ignored) {}
+            }
+            if (!uids.isEmpty()) {
+                // só o som dos apps escolhidos (como no GoLive)
+                for (int uid : uids) cb.addMatchingUid(uid);
+            } else {
+                cb.addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                  .addMatchingUsage(AudioAttributes.USAGE_GAME)
+                  .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                  .excludeUid(Process.myUid()); // não manda de volta a voz de quem está na chamada
+            }
+            AudioPlaybackCaptureConfiguration cfg = cb.build();
             AudioFormat fmt = new AudioFormat.Builder()
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                     .setSampleRate(48000)

@@ -1,6 +1,6 @@
 import {
   ArrowDown, AtSign, Copy, CornerUpLeft, Download, FileText, Hash, Menu, Paperclip, Pencil, Phone, Pin, Plus, RotateCw, Search,
-  SendHorizontal, Smile, Trash2, Users, Video, X,
+  SendHorizontal, Smile, Star, Trash2, Users, Video, X,
 } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { QUICK_REACTIONS } from '../lib/emoji'
@@ -14,6 +14,8 @@ import {
 import { channelTitle, dmPartnerIds, openModal, presenceOf, set, toast, useApp } from '../store/app'
 import { joinVoice, toggleCamera, useVoice } from '../voice/engine'
 import { EmojiPicker } from './EmojiPicker'
+import { GifPicker, useGifFavorites } from './GifPicker'
+import { gifIdFromUrl, gifUrl } from '../lib/gifs'
 import { Markdown, plain } from './Markdown'
 import { channelMention } from '../prisma/agent'
 import { PRISMA_PROFILE, PrismaMark } from './Prisma'
@@ -197,6 +199,7 @@ const MessageItem = memo(function MessageItem({ m, fresh, compact, author, repli
           <button data-tip="Responder" aria-label="Responder" onClick={() => { set((s) => ({ replyingTo: { ...s.replyingTo, [m.channel_id]: m.id } })); document.getElementById('composer-input')?.focus() }}><CornerUpLeft size={17} /></button>
           {mine && !bot && <button data-tip="Editar" aria-label="Editar" onClick={() => set({ editing: m.id })}><Pencil size={16} /></button>}
           {canPin && <button data-tip={m.pinned ? 'Desafixar' : 'Fixar'} aria-label={m.pinned ? 'Desafixar' : 'Fixar'} onClick={() => void setPinned(m, !m.pinned)}><Pin size={16} /></button>}
+          {gifUrl(m.content.trim()) && <FavGifButton url={m.content.trim()} />}
           {m.content && <button data-tip="Copiar texto" aria-label="Copiar texto" onClick={() => void navigator.clipboard?.writeText(m.content).then(() => toast('Texto copiado', 'ok'))}><Copy size={16} /></button>}
           {(mine || canModerate) && (
             <button className="danger" data-tip="Apagar" aria-label="Apagar" onClick={(e) => {
@@ -210,6 +213,12 @@ const MessageItem = memo(function MessageItem({ m, fresh, compact, author, repli
     </article>
   )
 })
+
+function FavGifButton({ url }: { url: string }) {
+  const { isFav, toggle } = useGifFavorites()
+  const on = isFav(url)
+  return <button data-tip={on ? 'Tirar dos favoritos' : 'Salvar GIF'} aria-label={on ? 'Tirar GIF dos favoritos' : 'Salvar GIF nos favoritos'} aria-pressed={on} className={on ? 'on' : ''} onClick={() => void toggle({ id: gifIdFromUrl(url), url, preview: url, width: 0, height: 0 })}><Star size={16} /></button>
+}
 
 // ============================================================ lista
 function MessageList({ channel }: { channel: Channel }) {
@@ -321,6 +330,7 @@ function MessageList({ channel }: { channel: Channel }) {
 const drafts = new Map<string, string>()
 
 function Composer({ channel, dropped }: { channel: Channel; dropped: File[] | null }) {
+  const [gifs, setGifs] = useState(false)
   const [text, setText] = useState(() => drafts.get(channel.id) || '')
   const [files, setFiles] = useState<File[]>([])
   const [picker, setPicker] = useState(false)
@@ -472,7 +482,11 @@ function Composer({ channel, dropped }: { channel: Channel; dropped: File[] | nu
           />
           {over > -500 && <span className={`counter${over > 0 ? ' over' : ''}`} aria-live="polite">{-over}</span>}
           <div className="rel">
-            <button className="icon-btn" data-tip="Emoji" aria-label="Inserir emoji" aria-expanded={picker} onClick={() => setPicker((v) => !v)}><Smile size={21} /></button>
+            <button className="icon-btn gif-btn" data-tip="GIF" aria-label="Escolher GIF" aria-expanded={gifs} onClick={() => { setGifs((v) => !v); setPicker(false) }}>GIF</button>
+            {gifs && <GifPicker onClose={() => setGifs(false)} onPick={(g) => { setGifs(false); void sendMessage(channel.id, g.url, [], replyId || null) }} />}
+          </div>
+          <div className="rel">
+            <button className="icon-btn" data-tip="Emoji" aria-label="Inserir emoji" aria-expanded={picker} onClick={() => { setPicker((v) => !v); setGifs(false) }}><Smile size={21} /></button>
             {picker && <EmojiPicker onClose={() => setPicker(false)} onPick={(e) => insert(e.startsWith('<:') ? `${e} ` : e)} />}
           </div>
           <button className="icon-btn send" aria-label="Enviar mensagem" disabled={(!text.trim() && !files.length) || over > 0} onClick={() => void submit()}><SendHorizontal size={20} /></button>

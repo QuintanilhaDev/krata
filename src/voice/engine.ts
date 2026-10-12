@@ -12,7 +12,7 @@ import { trackPresence } from '../store/actions'
 
 // ------------------------------------------------------------------ tipos
 export type Resolution = 'source' | '2160' | '1440' | '1080' | '720'
-export interface ScreenSettings { resolution: Resolution; fps: 15 | 30 | 60; mode: 'motion' | 'text'; audio: boolean }
+export interface ScreenSettings { resolution: Resolution; fps: 15 | 30 | 60; mode: 'motion' | 'text'; audio: boolean; /** app Android: só o som destes apps (vazio = todos) */ apps?: string[]; /** não mandar o som da própria chamada junto */ excludeCall?: boolean }
 export interface VoiceMember {
   user_id: string
   channel_id: string
@@ -51,6 +51,8 @@ interface VoiceState {
   focus: string | null
   stageOpen: boolean
   incoming: { channelId: string; from: string } | null
+  /** quem eu estou chamando agora (tela de "Chamando…" com botão de cancelar) */
+  outgoing: { channelId: string; ids: string[]; since: number } | null
   joinedAt: number
   audioBlocked: boolean
 }
@@ -65,10 +67,16 @@ export const voiceSettings = (): VoiceSettings => {
 }
 export const saveVoiceSettings = (v: VoiceSettings) => localStorage.setItem('krata-voice', JSON.stringify(v))
 
+function savedVolumes(): Record<string, number> {
+  try { return JSON.parse(localStorage.getItem('krata-volumes') || '{}') } catch { return {} }
+}
+/** Corta uma espera de rede que travou (sem isso, sair da chamada podia ficar preso). */
+const within = <T,>(p: Promise<T>, ms: number): Promise<T | undefined> => Promise.race([p, new Promise<undefined>((r) => setTimeout(() => r(undefined), ms))])
+
 const initial: VoiceState = {
   channelId: null, scopeId: null, status: 'idle', muted: false, deafened: false, camera: false, screen: false,
   screenSettings: savedScreen(), micStream: null, camStream: null, screenStream: null, peers: {}, rosters: {},
-  speaking: {}, volumes: {}, ping: null, screenOut: null, inbound: {}, focus: null, stageOpen: false, incoming: null, joinedAt: 0, audioBlocked: false,
+  speaking: {}, volumes: savedVolumes(), ping: null, screenOut: null, inbound: {}, focus: null, stageOpen: false, incoming: null, outgoing: null, joinedAt: 0, audioBlocked: false,
 }
 export const useVoice = create<VoiceState>(() => ({ ...initial }))
 const vget = useVoice.getState
@@ -376,6 +384,7 @@ function onRoster(before: VoiceMember[], roster: VoiceMember[]) {
     void (async () => { for (const w of queued) await onSignal(w.msg) })()
   }
   const ids = new Set(here.map((m) => m.user_id))
+  if (s.outgoing && here.some((m) => s.outgoing!.ids.includes(m.user_id))) { ringing.clear(); stopRingback() }
   for (const id of [...peers.keys()]) if (!ids.has(id)) { closePeer(id); sounds.leave() }
   for (const m of here) if (m.screen && !before.find((b) => b.user_id === m.user_id)?.screen && wasHere.has(m.user_id)) sounds.stream()
   if (s.focus && !here.some((m) => s.focus === `${m.user_id}:screen` && m.screen) && s.focus !== `${me}:screen`) vset({ focus: null })
@@ -418,8 +427,31 @@ export function joinVoice(channelId: string, opts: { ring?: boolean } = {}) {
 
 export function leaveVoice(silent = false) {
   joinToken++
+  // a tela e o microfone soltam NA HORA, mesmo que uma entrada ainda esteja esperando a rede ou a permissão
+  const s = vget()
+  if (s.channelId) releaseLocal(s, silent)
   return serial(() => leaveVoiceNow(silent))
 }
+
+/** Parte local de sair: para microfone/câmera/tela, fecha as conexões e limpa a tela da chamada. */
+function releaseLocal(s: VoiceState, silent: boolean) {
+  if (ringing.size || s.outgoing) cancelRing(s.channelId!)
+  stopRingback()
+  for (const id of [...peers.keys()]) closePeer(id)
+  waiting.clear()
+  outbox.length = 0
+  for (const st of [s.micStream, s.camStream, s.screenStream]) st?.getTracks().forEach((t) => { t.onended = null; t.stop() })
+  if (statsTimer) clearInterval(statsTimer)
+  if (speakTimer) clearInterval(speakTimer)
+  statsTimer = speakTimer = null
+  analysers.clear()
+  pendingLeave = { channelId: s.channelId, scopeId: s.scopeId, rtc }
+  rtc = null
+  vset((v) => ({ ...initial, rosters: v.rosters, volumes: v.volumes, screenSettings: v.screenSettings, incoming: v.incoming }))
+  void trackPresence(null)
+  if (!silent) sounds.leave()
+}
+let pendingLeave: { channelId: string | null; scopeId: string | null; rtc: RealtimeChannel | null } | null = null
 
 async function joinVoiceNow(channelId: string, opts: { ring?: boolean }) {
   if (vget().channelId === channelId && vget().status === 'connected') { vset({ stageOpen: true }); return }
@@ -434,8 +466,11 @@ async function joinVoiceNow(channelId: string, opts: { ring?: boolean }) {
   const scopeId = scopeOf(channelId)
   vset({ channelId, scopeId, status: 'connecting', stageOpen: true, incoming: null, joinedAt: Date.now() })
   audioCtx()
-  const mic = await getMic()
-  if (token !== joinToken) { mic?.getTracks().forEach((t) => t.stop()); return }
+  // o pedido do microfone pode ficar esperando a pessoa responder: sair da chamada não espera por ele
+  const micReq = getMic()
+  const mic = await Promise.race([micReq, new Promise<null>((resolve) => { const t = setInterval(() => { if (token !== joinToken) { clearInterval(t); resolve(null) } }, 150); void micReq.finally(() => clearInterval(t)) })])
+  if (token !== joinToken) { void micReq.then((m) => m?.getTracks().forEach((t) => t.stop())) }
+  if (token !== joinToken) { mic?.getTracks().forEach((t) => t.stop()); if (vget().channelId === channelId && vget().status === 'connecting') vset({ status: 'idle', channelId: null }); return }
   const wasMuted = vget().muted
   mic?.getAudioTracks().forEach((t) => { t.enabled = !wasMuted })
   vset({ micStream: mic })
@@ -454,7 +489,7 @@ async function joinVoiceNow(channelId: string, opts: { ring?: boolean }) {
   if (!ok) { toast('Não foi possível conectar à sala. Verifique sua internet.', 'error'); await leaveVoiceNow(true); return }
 
   vset({ status: 'connected', joinedAt: Date.now() })
-  await announce()
+  await within(announce(), 5000)
   if (token !== joinToken) return
   onRoster([], vget().rosters[scopeId] || [])
   void trackPresence(channelId)
@@ -466,28 +501,17 @@ async function joinVoiceNow(channelId: string, opts: { ring?: boolean }) {
 
 async function leaveVoiceNow(silent: boolean) {
   const s = vget()
-  if (!s.channelId) return
-  if (ringing.size) cancelRing(s.channelId)
-  for (const id of [...peers.keys()]) closePeer(id)
-  waiting.clear()
-  outbox.length = 0
-  for (const st of [s.micStream, s.camStream, s.screenStream]) st?.getTracks().forEach((t) => { t.onended = null; t.stop() })
-  if (statsTimer) clearInterval(statsTimer)
-  if (speakTimer) clearInterval(speakTimer)
-  statsTimer = speakTimer = null
-  analysers.clear()
-  const oldRtc = rtc
-  rtc = null
-  // a tela volta ao normal na hora; o aviso para a sala termina logo em seguida
-  vset((v) => ({ ...initial, rosters: v.rosters, volumes: v.volumes, screenSettings: v.screenSettings, incoming: v.incoming }))
-  void trackPresence(null)
-  if (!silent) sounds.leave()
-  if (s.scopeId) {
-    const sc = scopes.get(s.scopeId)
-    try { await sc?.channel?.untrack() } catch { /* já desconectado */ }
-    unwatch(s.scopeId, 'call')
+  if (s.channelId) releaseLocal(s, silent)
+  const p = pendingLeave
+  pendingLeave = null
+  if (!p) return
+  // avisar a sala e fechar o canal: com limite de tempo, para nunca travar a próxima entrada
+  if (p.scopeId) {
+    const sc = scopes.get(p.scopeId)
+    try { await within<unknown>(sc?.channel?.untrack() ?? Promise.resolve(), 3000) } catch { /* já desconectado */ }
+    unwatch(p.scopeId, 'call')
   }
-  await dropChannel(oldRtc)
+  await within(dropChannel(p.rtc), 3000)
 }
 
 export async function stopVoiceEverything() {
@@ -696,7 +720,7 @@ export async function startScreen(settings: ScreenSettings): Promise<boolean> {
   } else try {
     stream = await navigator.mediaDevices.getDisplayMedia({
       video: videoConstraints(settings),
-      audio: settings.audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } as MediaTrackConstraints : false,
+      audio: settings.audio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2, ...(settings.excludeCall !== false ? { suppressLocalAudioPlayback: true, restrictOwnAudio: true } : {}) } as MediaTrackConstraints : false,
       systemAudio: 'include', surfaceSwitching: 'include', selfBrowserSurface: 'exclude',
     } as DisplayMediaStreamOptions)
   } catch (e) {
@@ -847,6 +871,7 @@ export function startUserChannel(uid: string) {
     const { channelId, from } = payload as { channelId: string; from: string }
     if (vget().channelId !== channelId) return
     ringing.delete(from)
+    if (!ringing.size) stopRingback()
     toast(`${app().profiles[from]?.display_name || 'A pessoa'} recusou a chamada.`)
   })
   ch.subscribe()
@@ -878,15 +903,44 @@ function sendToUser(userId: string, event: string, payload: Record<string, unkno
   userQueues.set(userId, next)
   void next.finally(() => { if (userQueues.get(userId) === next) userQueues.delete(userId) })
 }
+let ringbackTimer: ReturnType<typeof setInterval> | null = null
+let ringTimeout: ReturnType<typeof setTimeout> | null = null
+function stopRingback() {
+  if (ringbackTimer) clearInterval(ringbackTimer)
+  if (ringTimeout) clearTimeout(ringTimeout)
+  ringbackTimer = ringTimeout = null
+  if (vget().outgoing) vset({ outgoing: null })
+}
 function ringOthers(channelId: string) {
   const s = vget()
   const inRoom = new Set((s.rosters[s.scopeId || ''] || []).filter((m) => m.channel_id === channelId).map((m) => m.user_id))
+  const ids: string[] = []
   for (const id of dmPartnerIds(app(), channelId)) {
     if (inRoom.has(id)) continue
     ringing.add(id)
+    ids.push(id)
     sendToUser(id, 'ring', { channelId, from: app().userId })
   }
-  setTimeout(() => ringing.clear(), 30000)
+  if (!ids.length) return
+  vset({ outgoing: { channelId, ids, since: Date.now() } })
+  // toque de "chamando" para quem ligou
+  sounds.ringback()
+  ringbackTimer = setInterval(() => sounds.ringback(), 3000)
+  ringTimeout = setTimeout(() => {
+    const out = vget().outgoing
+    if (!out) return
+    cancelRing(channelId)
+    stopRingback()
+    toast('Ninguém atendeu. Você continua na chamada, se quiser esperar.')
+  }, 35000)
+}
+/** Para de chamar (botão "Cancelar" ou alguém atendeu). */
+export function stopCalling(hangUp = true) {
+  const out = vget().outgoing
+  if (!out) return
+  cancelRing(out.channelId)
+  stopRingback()
+  if (hangUp) void leaveVoice()
 }
 function cancelRing(channelId: string) {
   const s = vget()
@@ -895,7 +949,10 @@ function cancelRing(channelId: string) {
   ringing.clear()
 }
 
-export const setVolume = (key: string, v: number) => vset((s) => ({ volumes: { ...s.volumes, [key]: v } }))
+export const setVolume = (key: string, v: number) => {
+  vset((s) => ({ volumes: { ...s.volumes, [key]: v } }))
+  try { localStorage.setItem('krata-volumes', JSON.stringify(vget().volumes)) } catch { /* sem armazenamento */ }
+}
 
 /** iPhone e alguns navegadores bloqueiam o som até um toque na tela. */
 export function unlockAudio() {

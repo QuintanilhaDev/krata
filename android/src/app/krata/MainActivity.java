@@ -51,7 +51,7 @@ import java.util.Map;
 public class MainActivity extends Activity {
     static final String APP_URL = "https://krata-henna.vercel.app/";
     static final String APP_HOST = Uri.parse(APP_URL).getHost();
-    static final String VERSION = "1.3.0";
+    static final String VERSION = "1.4.0";
     static volatile boolean visible = false;
 
     private static final int REQ_SCREEN = 41;
@@ -347,6 +347,44 @@ public class MainActivity extends Activity {
         @JavascriptInterface public String screenCodec() { return ScreenHub.codec; }
 
         @JavascriptInterface public String screenMode() { return ScreenHub.mode; }
+
+        /** Apps instalados (para escolher de quais o som vai na transmissão). */
+        @JavascriptInterface public String listAudioApps() {
+            try {
+                android.content.pm.PackageManager pm = getPackageManager();
+                Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+                List<android.content.pm.ResolveInfo> list = pm.queryIntentActivities(launcher, 0);
+                org.json.JSONArray out = new org.json.JSONArray();
+                java.util.Set<String> seen = new java.util.HashSet<String>();
+                for (android.content.pm.ResolveInfo ri : list) {
+                    String pkg = ri.activityInfo.packageName;
+                    if (pkg.equals(getPackageName()) || !seen.add(pkg)) continue;
+                    JSONObject o = new JSONObject();
+                    o.put("pkg", pkg);
+                    o.put("label", String.valueOf(ri.loadLabel(pm)));
+                    try {
+                        android.graphics.drawable.Drawable d = ri.loadIcon(pm);
+                        android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888);
+                        android.graphics.Canvas cv = new android.graphics.Canvas(b);
+                        d.setBounds(0, 0, 64, 64);
+                        d.draw(cv);
+                        java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                        b.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, bo);
+                        o.put("icon", "data:image/png;base64," + android.util.Base64.encodeToString(bo.toByteArray(), android.util.Base64.NO_WRAP));
+                    } catch (Throwable ignored) {}
+                    out.put(o);
+                }
+                return out.toString();
+            } catch (Throwable t) { return "[]"; }
+        }
+
+        @JavascriptInterface public void setScreenAudioApps(String csv) {
+            java.util.List<String> l = new java.util.ArrayList<String>();
+            if (csv != null) for (String p : csv.split(",")) if (!p.trim().isEmpty()) l.add(p.trim());
+            ScreenHub.audioApps = l;
+        }
+
+        @JavascriptInterface public boolean canChooseAudioApps() { return Build.VERSION.SDK_INT >= 30; }
 
         // ---------------------------------------------------------- atualização dentro do app
         @JavascriptInterface public String updateInfo() { return Updater.info(MainActivity.this); }

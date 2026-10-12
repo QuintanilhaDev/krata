@@ -1050,3 +1050,67 @@ html, body { overscroll-behavior: none; }
 .app-update-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--jade), var(--jade-hi)); border-radius: inherit; transition: width 0.3s; }
 .app-update .btn { flex: none; white-space: nowrap; }
 .spin { animation: spin 1s linear infinite; }
+.calling { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 24px; text-align: center; animation: fade-in 0.4s; }
+.calling h2 { font: 600 22px var(--display); color: var(--white); margin-top: 18px; letter-spacing: -0.02em; }
+.calling-actions { display: flex; align-items: center; gap: 18px; margin-top: 22px; }
+.stage-wait .btn { margin-top: 10px; }
+.screen-vol { position: absolute; z-index: 3; left: 10px; top: 10px; }
+.screen-vol-btn { display: flex; align-items: center; gap: 5px; padding: 6px 10px; border-radius: 16px; background: rgba(5, 7, 6, 0.72); border: 1px solid rgba(255, 255, 255, 0.12); color: var(--white); font-size: 12.5px; font-weight: 600; backdrop-filter: blur(8px); font-variant-numeric: tabular-nums; }
+.screen-vol-btn:hover { border-color: var(--jade); }
+.screen-vol-pop { position: absolute; left: 0; top: calc(100% + 6px); display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 14px; background: rgba(15, 19, 18, 0.95); border: 1px solid var(--line-2); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6); animation: pop-in 0.18s var(--ease); }
+.screen-vol-pop input { width: 150px; accent-color: var(--jade); }
+.screen-vol-pct { min-width: 40px; text-align: right; font-size: 12.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.tile.small .screen-vol { left: 4px; top: 4px; }
+.tile.small .screen-vol-btn span { display: none; }
+
+/* ajuste de foto */
+.cropper-veil { position: fixed; inset: 0; z-index: 125; display: grid; place-items: center; padding: 16px; background: rgba(2, 3, 3, 0.78); backdrop-filter: blur(8px); animation: fade 0.2s; }
+.cropper { width: min(460px, 100%); display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 20px 18px 18px; border-radius: 24px; background: linear-gradient(160deg, rgba(26, 40, 35, 0.98), rgba(10, 13, 12, 0.99)); border: 1px solid rgba(61, 219, 164, 0.3); box-shadow: 0 40px 100px rgba(0, 0, 0, 0.75); animation: modal-in 0.5s var(--spring); }
+.cropper h2 { font: 600 17px var(--display); color: var(--white); }
+.cropper > p { font-size: 13px; text-align: center; }
+.cropper-frame { position: relative; overflow: hidden; border-radius: 16px; background: #000; touch-action: none; cursor: grab; user-select: none; }
+.cropper-frame:active { cursor: grabbing; }
+.cropper-frame img { position: absolute; left: 50%; top: 50%; max-width: none; pointer-events: none; }
+.cropper-mask { position: absolute; inset: 0; pointer-events: none; border: 2px solid rgba(61, 219, 164, 0.85); }
+.cropper-frame.circle .cropper-mask { border-radius: 50%; box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.55); }
+.cropper-frame.rounded .cropper-mask { border-radius: 28%; box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.55); }
+.cropper-frame.wide .cropper-mask { border-radius: 16px; }
+.cropper-zoom { display: flex; align-items: center; gap: 6px; width: 100%; }
+.cropper-zoom input { flex: 1; accent-color: var(--jade); }
+.cropper footer { display: flex; gap: 8px; justify-content: flex-end; width: 100%; }
+@media (max-width: 820px) { .cropper footer .btn { flex: 1; } }
+
+/* GIFs */
+.gif-btn { font: 800 11px/1 var(--font); letter-spacing: 0.04em; border: 1.5px solid currentColor; border-radius: 6px; width: auto !important; padding: 3px 5px; height: auto !important; margin: 0 4px; color: var(--text-2); }
+.gif-btn:hover, .gif-btn[aria-expanded="true"] { color: var(--jade-hi); }
+.gif-picker { position: absolute; right: 0; bottom: calc(100% + 10px); width: min(400px, calc(100vw - 16px)); height: min(460px, 62vh); display: flex; flex-direction: column; padding: 8px; z-index: 50; transform-origin: 100% 100%; }
+.gif-head { display: grid; gap: 8px; padding-bottom: 8px; }
+.gif-search { min-height: 40px; }
+.gif-tabs { display: flex; gap: 4px; }
+.gif-tabs button { display: flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 9px; color: var(--text-2); font-weight: 600; font-size: 13px; }
+.gif-tabs button.on { background: var(--onyx-5); color: var(--white); }
+.gif-grid { flex: 1; overflow-y: auto; overscroll-behavior: contain; border-radius: 10px; }
+.gif-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.gif-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.gif-item { position: relative; border-radius: 10px; overflow: hidden; background: var(--onyx-2); }
+.gif-send { display: block; width: 100%; height: 100%; }
+.gif-send img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.25s var(--ease); }
+.gif-send:hover img { transform: scale(1.04); }
+.gif-star { position: absolute; top: 5px; right: 5px; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: rgba(5, 7, 6, 0.7); color: var(--white); opacity: 0; transition: opacity 0.15s, transform 0.2s var(--spring); }
+.gif-item:hover .gif-star, .gif-star.on { opacity: 1; }
+.gif-star.on { color: #ffd34d; }
+.gif-star.on svg { fill: currentColor; }
+.gif-star:active { transform: scale(0.85); }
+.gif-empty { padding: 18px 8px; text-align: center; color: var(--text-2); font-size: 13.5px; grid-column: 1 / -1; }
+.gif-embed { display: block; max-width: min(360px, 100%); max-height: 320px; border-radius: 12px; margin-top: 2px; background: var(--onyx-2); }
+.msg-tools button.on svg { color: #ffd34d; fill: currentColor; }
+@media (pointer: coarse) { .gif-star { opacity: 1; } }
+@media (max-width: 820px) { .gif-picker { position: fixed; left: 8px; right: 8px; bottom: 76px; width: auto; } }
+.audio-apps { display: grid; gap: 8px; }
+.audio-app-list { max-height: 240px; overflow-y: auto; display: grid; gap: 2px; border: 1px solid var(--line); border-radius: 12px; padding: 4px; overscroll-behavior: contain; }
+.audio-app-list button { width: 100%; display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 9px; text-align: left; color: var(--text); }
+.audio-app-list button:hover { background: var(--onyx-4); }
+.audio-app-list button.on { background: var(--jade-wash); color: var(--white); }
+.audio-app-list button.on svg { color: var(--jade-hi); }
+.audio-app-list img, .audio-app-ph { width: 28px; height: 28px; border-radius: 7px; flex: none; background: var(--onyx-4); }
+.audio-app-list li.muted { padding: 10px; }

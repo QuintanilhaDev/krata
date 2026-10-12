@@ -5,6 +5,7 @@ import { Empty, FriendsView, MembersPanel, Rail, Sidebar, UserPanel } from './co
 import { ModalRoot } from './components/Modals'
 import { PrismaRoot } from './components/Prisma'
 import { UpdateBanner } from './components/AppUpdate'
+import { CropperHost } from './components/Cropper'
 import { AudioSink, CallPill, IncomingCall, VoiceBar, VoiceStage } from './components/Voice'
 import { ErrorBoundary, Gem, ShardField, Toasts } from './components/ui'
 import { applyMotion } from './lib/motion'
@@ -181,6 +182,7 @@ export default function App() {
       <ModalRoot />
       {id === 'app' && <ErrorBoundary><PrismaRoot /></ErrorBoundary>}
       {window.KrataNative?.updateInfo && <ErrorBoundary><UpdateBanner /></ErrorBoundary>}
+      <CropperHost />
       <Toasts />
     </>
   )

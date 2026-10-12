@@ -15,6 +15,8 @@ import { celebrate, registerSprite } from '../prisma/fairy'
 import { say } from '../prisma/persona'
 import { pget, pset, usePrisma, type PanelState } from '../prisma/store'
 import { canContinuous, chosenVoice, femaleVoices, isIOS, pushToTalk, setListening, speak, speechSupport, volume } from '../prisma/voice'
+import { savedAudioApps } from './AudioApps'
+import { cropImage } from './Cropper'
 import { Gem } from './ui'
 
 /** Perfil "de mentira" para a Prisma aparecer na lista de menções. */
@@ -260,15 +262,17 @@ function UploadPanel({ p }: { p: Extract<PanelState, { kind: 'upload' }> }) {
 
   useEffect(() => () => { if (url) URL.revokeObjectURL(url) }, [url])
   useEffect(() => {
-    const onPaste = (e: ClipboardEvent) => { const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith('image/')); if (f) choose(f) }
+    const onPaste = (e: ClipboardEvent) => { const f = [...(e.clipboardData?.files || [])].find((x) => x.type.startsWith('image/')); if (f) void choose(f) }
     addEventListener('paste', onPaste)
     return () => removeEventListener('paste', onPaste)
   })
 
-  function choose(f: File | undefined) {
+  async function choose(picked: File | undefined) {
+    if (!picked) return
+    if (!picked.type.startsWith('image/')) return toast('Escolhe um arquivo de imagem.', 'error')
+    if (picked.size > MAX_AVATAR_BYTES) return toast('A imagem pode ter até 10 MB.', 'error')
+    const f = await cropImage(picked, p.target === 'banner' ? 'wide' : p.target === 'avatar' ? 'circle' : 'rounded', p.target === 'banner' ? 'Ajustar banner' : 'Ajustar imagem')
     if (!f) return
-    if (!f.type.startsWith('image/')) return toast('Escolhe um arquivo de imagem.', 'error')
-    if (f.size > MAX_AVATAR_BYTES) return toast('A imagem pode ter até 10 MB.', 'error')
     setFile(f)
     setUrl(URL.createObjectURL(f))
   }
@@ -305,13 +309,13 @@ function UploadPanel({ p }: { p: Extract<PanelState, { kind: 'upload' }> }) {
           type="button" className={`prisma-drop ${shape}${drag ? ' drag' : ''}${shownUrl ? ' has' : ''}`}
           onClick={() => input.current?.click()}
           onDragOver={(e) => { e.preventDefault(); setDrag(true) }} onDragLeave={() => setDrag(false)}
-          onDrop={(e) => { e.preventDefault(); setDrag(false); choose(e.dataTransfer.files[0]) }}
+          onDrop={(e) => { e.preventDefault(); setDrag(false); void choose(e.dataTransfer.files[0]) }}
           aria-label="Escolher imagem"
         >
           {shownUrl ? <img src={shownUrl} alt="" /> : <span className="prisma-drop-empty"><ImagePlus size={28} /><span>Toca pra escolher<br /><small>ou arrasta/cola uma imagem</small></span></span>}
           {busy && <span className="prisma-drop-progress" style={{ '--p': progress } as CSSProperties} />}
         </button>
-        <input ref={input} type="file" accept="image/*" hidden onChange={(e) => { choose(e.target.files?.[0]); e.target.value = '' }} />
+        <input ref={input} type="file" accept="image/*" hidden onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
         {p.target === 'emoji' && (
           <label className="field"><span className="field-label">Nome do emoji</span>
             <div className="input with-prefix"><span>:</span><input value={name} maxLength={24} onChange={(e) => setName(e.target.value)} placeholder="nome_do_emoji" aria-label="Nome do emoji" /></div>
@@ -350,7 +354,7 @@ function ScreenPanel({ quality }: { quality?: string }) {
   const supported = canShareScreen()
   async function go() {
     setBusy(true)
-    const ok = await startScreen({ ...saved, resolution: res, fps, audio })
+    const ok = await startScreen({ ...saved, resolution: res, fps, audio, apps: savedAudioApps() })
     setBusy(false)
     if (ok) { celebrate(); panelDone(`Tá no ar em ${RES[res].label}! GG.`) }
   }
