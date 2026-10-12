@@ -66,6 +66,12 @@ export function errorText(e: unknown): string {
   if (code === 'invalid_credentials' || /Invalid login credentials/i.test(msg)) return 'Usuário ou senha incorretos.'
   if (code === 'user_already_exists' || /already registered|already been registered/i.test(msg)) return 'Esse nome de usuário já está em uso. Escolha outro.'
   if (code === 'weak_password' || /Password should be|weak password/i.test(msg)) return 'Senha fraca. Use pelo menos 8 caracteres, misturando letras e números.'
+  // 429 de e-mail: o Supabase ainda está tentando mandar e-mail de confirmação (limite de poucos e-mails por hora)
+  if (code === 'over_email_send_rate_limit' || /email rate limit/i.test(msg))
+    return 'O Supabase está tentando mandar e-mail de confirmação. Em Authentication → Sign In / Providers → Email, desligue "Confirm email", salve e tente de novo.'
+  // O Supabase tentou mandar e-mail de confirmação para o endereço interno: a confirmação precisa estar desligada
+  if (code === 'email_address_invalid' || code === 'email_address_not_authorized' || /Email address .* is invalid|not authorized|Error sending confirmation/i.test(msg))
+    return 'Falta um ajuste no Supabase: em Authentication → Sign In / Providers → Email, desligue "Confirm email" e salve. Depois tente de novo.'
   if (code === 'email_not_confirmed' || /Email not confirmed/i.test(msg)) return 'No Supabase, desligue "Confirm email" (Authentication → Providers → Email) para o login funcionar.'
   if (code === 'over_request_rate_limit' || /rate limit|too many/i.test(msg)) return 'Muitas tentativas seguidas. Aguarde um minuto e tente de novo.'
   if (/Database error saving new user/i.test(msg)) return 'Não foi possível criar a conta. Confira o nome de usuário e tente de novo.'

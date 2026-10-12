@@ -1,5 +1,6 @@
 import { X } from 'lucide-react'
 import { Component, useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
+import { pointer, reduced, trackPointer } from '../lib/motion'
 import { safeMediaUrl } from '../lib/supabase'
 import type { Profile, Status } from '../lib/types'
 import { useApp } from '../store/app'
@@ -102,36 +103,141 @@ export function Logo({ size = 28 }: { size?: number }) {
   )
 }
 
-/** Pedra de jade em 3D (CSS puro), usada no login e nas telas de espera. */
-export function Gem({ size = 180, className = '' }: { size?: number; className?: string }) {
+/**
+ * Pedra de jade em 3D (CSS 3D + um laço de animação).
+ * Gira sozinha, a luz das faces muda conforme ela gira, inclina na direção do mouse,
+ * acelera quando o mouse chega perto, pode ser arrastada para girar (com inércia)
+ * e dá um giro rápido ao ser clicada.
+ */
+export function Gem({ size = 180, className = '', interactive = false, speed = 1 }: { size?: number; className?: string; interactive?: boolean; speed?: number }) {
   const n = 8
   const a = size * 0.36            // apótema da base
   const top = size * 0.3           // altura da coroa
   const bottom = size * 0.62       // altura do pavilhão
   const w = 2 * a * Math.tan(Math.PI / n) + 1
+  const box = useRef<HTMLDivElement>(null)
+  const spin = useRef<HTMLDivElement>(null)
+  const glow = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = spin.current, root = box.current
+    if (!el || !root) return
+    trackPointer()
+    const faces = [...el.querySelectorAll<HTMLElement>('i')]
+    let rotY = Math.random() * 360
+    let vel = 26 * speed
+    let tiltX = -14, lean = 0, lift = 0, near = 0, burst = 0
+    let dragging = false, lastX = 0, dragVel = 0
+    let raf = 0, last = performance.now(), frame = 0
+
+    const hit = (x: number, y: number) => {
+      const r = root.getBoundingClientRect()
+      return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+    }
+    const down = (e: PointerEvent) => {
+      if (!interactive || !hit(e.clientX, e.clientY)) return
+      if ((e.target as HTMLElement).closest('button, a, input, textarea, select, label')) return
+      dragging = true; lastX = e.clientX; dragVel = 0
+      burst = 1
+      vel += 420 * speed // clique: giro rápido
+    }
+    const move = (e: PointerEvent) => {
+      if (!dragging) return
+      const dx = e.clientX - lastX
+      lastX = e.clientX
+      rotY += dx * 0.6
+      dragVel = dx * 30
+    }
+    const up = () => { if (dragging) { vel += dragVel; dragging = false } }
+    if (interactive) {
+      window.addEventListener('pointerdown', down)
+      window.addEventListener('pointermove', move, { passive: true })
+      window.addEventListener('pointerup', up)
+      window.addEventListener('pointercancel', up)
+    }
+
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick)
+      if (document.hidden) { last = now; return }
+      const dt = Math.min(0.05, (now - last) / 1000)
+      last = now
+      const calm = reduced()
+      const base = (calm ? 10 : 26) * speed
+      // proximidade do mouse (0 longe, 1 em cima)
+      let targetNear = 0, targetTilt = -14, targetLean = 0
+      if (interactive && pointer.active) {
+        const r = root.getBoundingClientRect()
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2
+        const dx = (pointer.px - cx) / Math.max(innerWidth, 1), dy = (pointer.py - cy) / Math.max(innerHeight, 1)
+        const dist = Math.hypot(pointer.px - cx, pointer.py - cy)
+        targetNear = Math.max(0, 1 - dist / (r.width * 1.6))
+        targetTilt = -14 + Math.max(-1, Math.min(1, dy)) * 34
+        targetLean = Math.max(-1, Math.min(1, dx)) * -22
+      }
+      const k = 1 - Math.exp(-dt * (calm ? 2 : 5))
+      near += (targetNear - near) * k
+      tiltX += (targetTilt - tiltX) * k
+      lean += (targetLean - lean) * k
+      if (!dragging) {
+        const wanted = base * (1 + near * 3.5)
+        vel += (wanted - vel) * (1 - Math.exp(-dt * 1.6))
+        rotY += vel * dt
+      }
+      burst = Math.max(0, burst - dt * 1.4)
+      lift = Math.sin(now / 1400) * (calm ? 3 : 9)
+      const scale = 1 + near * 0.08 + burst * 0.1
+      el.style.transform = `translateY(${lift.toFixed(2)}px) rotateX(${tiltX.toFixed(2)}deg) rotateZ(${lean.toFixed(2)}deg) rotateY(${(rotY % 360).toFixed(2)}deg) scale(${scale.toFixed(3)})`
+      if (glow.current) glow.current.style.opacity = String(0.55 + near * 0.45 + burst * 0.5)
+      // luz: a cada 2 quadros, as faces voltadas para a luz (alto, à esquerda) ficam mais claras
+      // luz: as faces voltadas para a luz (alto, à esquerda) ficam mais claras
+      if ((frame++ & 1) === 0) {
+        for (let i = 0; i < faces.length; i++) {
+          const upper = i < n
+          const ang = ((i % n) * (360 / n) + rotY) * (Math.PI / 180)
+          const facing = Math.cos(ang - 0.6) * 0.5 + 0.5
+          const l = (upper ? 52 : 34) + facing * (upper ? 26 : 22) + near * 6 + burst * 14
+          const color = `hsl(${upper ? 157 : 160} ${upper ? 74 : 88}% ${Math.min(88, l).toFixed(1)}%)`
+          if (upper) faces[i].style.borderBottomColor = color
+          else faces[i].style.borderTopColor = color
+        }
+      }
+    }
+    raf = requestAnimationFrame(tick)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('pointerdown', down)
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+    }
+  }, [interactive, speed])
+
+  // cada face é um triângulo feito com bordas (sem recortes: muito mais leve para animar em 3D)
   const face = (i: number, up: boolean) => {
     const h = up ? top : bottom
     const slant = Math.sqrt(a * a + h * h)
     const tilt = (Math.atan(a / h) * 180) / Math.PI
-    const light = 30 + ((i * 37 + (up ? 0 : 19)) % 5) * 7 + (up ? 12 : 0)
+    const light = up ? 60 : 40
+    const side = `${w / 2}px solid transparent`
+    const fill = `${slant}px solid hsl(158 80% ${light}%)`
     return (
       <i key={`${up}${i}`} style={{
-        width: w, height: slant, left: `calc(50% - ${w / 2}px)`,
+        width: 0, height: 0, left: `calc(50% - ${w / 2}px)`,
         top: up ? `calc(50% - ${slant}px - ${size * 0.08}px)` : `calc(50% - ${size * 0.08}px)`,
+        borderLeft: side, borderRight: side,
+        ...(up ? { borderBottom: fill } : { borderTop: fill }),
         transformOrigin: up ? '50% 100%' : '50% 0%',
         transform: `rotateY(${i * (360 / n)}deg) translateZ(${a}px) rotateX(${up ? tilt : -tilt}deg)`,
-        clipPath: up ? 'polygon(50% 0, 0 100%, 100% 100%)' : 'polygon(0 0, 100% 0, 50% 100%)',
-        background: `linear-gradient(${up ? 180 : 0}deg, hsl(158 ${up ? 78 : 86}% ${light + 16}%), hsl(160 92% ${light - 8}%))`,
       }} />
     )
   }
   return (
-    <div className={`gem ${className}`} style={{ width: size, height: size }} aria-hidden="true">
-      <div className="gem-spin">
+    <div ref={box} className={`gem${interactive ? ' interactive' : ''} ${className}`} style={{ width: size, height: size }} aria-hidden="true">
+      <div ref={spin} className="gem-spin">
         {Array.from({ length: n }, (_, i) => face(i, true))}
         {Array.from({ length: n }, (_, i) => face(i, false))}
       </div>
-      <div className="gem-glow" />
+      <div ref={glow} className="gem-glow" />
     </div>
   )
 }
@@ -194,4 +300,83 @@ export class ErrorBoundary extends Component<{ children: ReactNode; label?: stri
       </div>
     )
   }
+}
+
+/** Lascas de jade flutuando em profundidade, com paralaxe seguindo o mouse. */
+export function ShardField({ density = 1 }: { density?: number }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    const canvas = ref.current
+    const ctx = canvas?.getContext('2d')
+    if (!canvas || !ctx) return
+    trackPointer()
+    let w = 0, h = 0, dpr = 1, raf = 0, last = performance.now()
+    let mx = 0, my = 0
+    const count = Math.round(70 * density)
+    const shards = Array.from({ length: count }, () => ({
+      x: Math.random(), y: Math.random(), z: 0.15 + Math.random() * 0.85,
+      r: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.8, s: 2 + Math.random() * 5, hue: 150 + Math.random() * 20,
+    }))
+    const resize = () => {
+      dpr = Math.min(2, window.devicePixelRatio || 1)
+      w = canvas.clientWidth; h = canvas.clientHeight
+      canvas.width = Math.max(1, w * dpr); canvas.height = Math.max(1, h * dpr)
+    }
+    resize()
+    const ro = new ResizeObserver(resize)
+    ro.observe(canvas)
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick)
+      if (document.hidden) { last = now; return }
+      const dt = Math.min(0.05, (now - last) / 1000)
+      last = now
+      const calm = reduced()
+      const k = 1 - Math.exp(-dt * 3)
+      mx += ((pointer.active ? pointer.x : 0) - mx) * k
+      my += ((pointer.active ? pointer.y : 0) - my) * k
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.clearRect(0, 0, w, h)
+      for (const p of shards) {
+        p.y -= dt * (calm ? 0.004 : 0.016) * (0.4 + p.z)
+        p.r += dt * p.vr * (calm ? 0.3 : 1)
+        if (p.y < -0.05) { p.y = 1.05; p.x = Math.random() }
+        const x = p.x * w - mx * 60 * p.z
+        const y = p.y * h - my * 40 * p.z
+        const s = p.s * (0.5 + p.z)
+        ctx.save()
+        ctx.translate(x, y)
+        ctx.rotate(p.r)
+        ctx.scale(1, 0.45 + 0.55 * Math.abs(Math.sin(p.r * 1.7)))
+        ctx.globalAlpha = 0.12 + p.z * 0.5
+        ctx.fillStyle = `hsl(${p.hue} 80% ${45 + p.z * 25}%)`
+        ctx.beginPath()
+        ctx.moveTo(0, -s * 1.6); ctx.lineTo(s, 0); ctx.lineTo(0, s * 1.6); ctx.lineTo(-s, 0)
+        ctx.closePath(); ctx.fill()
+        ctx.restore()
+      }
+    }
+    raf = requestAnimationFrame(tick)
+    return () => { cancelAnimationFrame(raf); ro.disconnect() }
+  }, [density])
+  return <canvas ref={ref} className="shards" aria-hidden="true" />
+}
+
+/** Atualiza --mx/--my (de -1 a 1, suavizados) no elemento, para paralaxe em CSS. */
+export function useParallax(ref: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    trackPointer()
+    let raf = 0, mx = 0, my = 0, last = performance.now()
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick)
+      const dt = Math.min(0.05, (now - last) / 1000)
+      last = now
+      const k = 1 - Math.exp(-dt * 3.5)
+      mx += ((pointer.active ? pointer.x : 0) - mx) * k
+      my += ((pointer.active ? pointer.y : 0) - my) * k
+      const el = ref.current
+      if (el) { el.style.setProperty('--mx', mx.toFixed(4)); el.style.setProperty('--my', my.toFixed(4)) }
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [ref])
 }

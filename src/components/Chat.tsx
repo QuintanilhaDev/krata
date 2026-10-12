@@ -88,9 +88,9 @@ function ReactionEmoji({ emoji }: { emoji: string }) {
   return custom && safeMediaUrl(custom.url) ? <img className="rx-emoji" src={safeMediaUrl(custom.url)!} alt={`:${custom.name}:`} /> : <span className="rx-emoji">❔</span>
 }
 
-interface ItemProps { m: Message; compact: boolean; author?: Profile; replied?: Message | null; repliedAuthor?: Profile; mine: boolean; canModerate: boolean; canPin: boolean; editing: boolean; mentioned: boolean }
+interface ItemProps { m: Message; fresh?: boolean; compact: boolean; author?: Profile; replied?: Message | null; repliedAuthor?: Profile; mine: boolean; canModerate: boolean; canPin: boolean; editing: boolean; mentioned: boolean }
 
-const MessageItem = memo(function MessageItem({ m, compact, author, replied, repliedAuthor, mine, canModerate, canPin, editing, mentioned }: ItemProps) {
+const MessageItem = memo(function MessageItem({ m, fresh, compact, author, replied, repliedAuthor, mine, canModerate, canPin, editing, mentioned }: ItemProps) {
   const uid = useApp((s) => s.userId)!
   const [picker, setPicker] = useState(false)
   const [active, setActive] = useState(false)
@@ -121,7 +121,7 @@ const MessageItem = memo(function MessageItem({ m, compact, author, replied, rep
   return (
     <article
       id={`msg-${m.id}`}
-      className={`msg${compact ? ' compact' : ''}${m.pending ? ' pending' : ''}${m.failed ? ' failed' : ''}${mentioned ? ' mentioned' : ''}${active || picker ? ' active' : ''}${m.pinned ? ' pinned' : ''}`}
+      className={`msg${fresh ? ' fresh' : ''}${compact ? ' compact' : ''}${m.pending ? ' pending' : ''}${m.failed ? ' failed' : ''}${mentioned ? ' mentioned' : ''}${active || picker ? ' active' : ''}${m.pinned ? ' pinned' : ''}`}
       onClick={(e) => { if (isCoarse() && !(e.target as HTMLElement).closest('a,button,video,audio,textarea')) setActive((v) => !v) }}
       onMouseLeave={() => setActive(false)}
     >
@@ -222,6 +222,7 @@ function MessageList({ channel }: { channel: Channel }) {
   const stick = useRef(true)
   const prev = useRef({ height: 0, first: '', last: '', count: 0 })
   const [fresh, setFresh] = useState(0)
+  const mountedAt = useRef(Date.now())
   const canModerate = role === 'owner' || role === 'admin'
   const canPin = !channel.server_id || canModerate
   const mentionRx = useMemo(() => (myName ? new RegExp(`(^|\\s)@(${myName.replace(/\./g, '\\.')}|todos)(?![a-z0-9_.])`, 'i') : null), [myName])
@@ -293,7 +294,7 @@ function MessageList({ channel }: { channel: Channel }) {
                 return (
                   <div key={m.id}>
                     {newDay && <div className="day-divider" role="separator"><span>{dayLabel(m.created_at)}</span></div>}
-                    <MessageItem m={m} compact={compact} author={profiles[m.author_id]} replied={replied} repliedAuthor={replied ? profiles[replied.author_id] : undefined}
+                    <MessageItem m={m} fresh={new Date(m.created_at).getTime() > mountedAt.current} compact={compact} author={profiles[m.author_id]} replied={replied} repliedAuthor={replied ? profiles[replied.author_id] : undefined}
                       mine={m.author_id === uid} canModerate={canModerate} canPin={canPin} editing={editing === m.id}
                       mentioned={m.author_id !== uid && !!mentionRx?.test(m.content)} />
                   </div>
@@ -321,6 +322,7 @@ function Composer({ channel, dropped }: { channel: Channel; dropped: File[] | nu
   const [mention, setMention] = useState<{ query: string; start: number; index: number } | null>(null)
   const input = useRef<HTMLTextAreaElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const caret = useRef<number | null>(null)
   const title = useApp((s) => channelTitle(s, channel))
   const replyId = useApp((s) => s.replyingTo[channel.id])
   const replyMsg = useApp((s) => (replyId ? s.messages[channel.id]?.items.find((m) => m.id === replyId) : undefined))
@@ -340,6 +342,8 @@ function Composer({ channel, dropped }: { channel: Channel; dropped: File[] | nu
   useLayoutEffect(() => {
     const el = input.current
     if (!el) return
+    // posiciona o cursor logo depois de inserir menção/emoji, antes da próxima tecla
+    if (caret.current !== null) { el.focus(); el.setSelectionRange(caret.current, caret.current); caret.current = null }
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.38))}px`
   }, [text])
@@ -362,17 +366,16 @@ function Composer({ channel, dropped }: { channel: Channel; dropped: File[] | nu
     const start = el?.selectionStart ?? text.length
     const end = el?.selectionEnd ?? text.length
     const next = text.slice(0, start) + snippet + text.slice(end)
+    caret.current = start + snippet.length
     setText(next)
-    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(start + snippet.length, start + snippet.length) })
   }
   function completeMention(p: Profile) {
     if (!mention) return
     const el = input.current
-    const caret = el?.selectionStart ?? text.length
-    const next = `${text.slice(0, mention.start)}@${p.username} ${text.slice(caret)}`
+    const at = el?.selectionStart ?? text.length
+    const next = `${text.slice(0, mention.start)}@${p.username} ${text.slice(at)}`
+    caret.current = mention.start + p.username.length + 2
     setText(next); setMention(null)
-    const pos = mention.start + p.username.length + 2
-    requestAnimationFrame(() => { el?.focus(); el?.setSelectionRange(pos, pos) })
   }
 
   async function submit() {

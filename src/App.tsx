@@ -1,10 +1,11 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { Login, SetupNeeded } from './components/Auth'
 import { ChatView } from './components/Chat'
 import { Empty, FriendsView, MembersPanel, Rail, Sidebar, UserPanel } from './components/Layout'
 import { ModalRoot } from './components/Modals'
 import { AudioSink, CallPill, IncomingCall, VoiceBar, VoiceStage } from './components/Voice'
-import { ErrorBoundary, Gem, Toasts } from './components/ui'
+import { ErrorBoundary, Gem, ShardField, Toasts } from './components/ui'
+import { applyMotion } from './lib/motion'
 import { isConfigured } from './lib/supabase'
 import { boot } from './store/actions'
 import { openModal, set, useApp } from './store/app'
@@ -73,20 +74,49 @@ function Shell() {
 // Ferramenta de diagnóstico: ative com localStorage.setItem('krata-debug', '1')
 try { if (localStorage.getItem('krata-debug') === '1') Object.assign(window, { __krata: { app: useApp, voice: useVoice, debug: voiceDebug } }) } catch { /* sem armazenamento */ }
 
+applyMotion()
+
+/**
+ * Troca de tela com transição: a tela que sai continua visível por um instante
+ * (voando para frente e sumindo) enquanto a nova entra.
+ */
+function ScreenSwitch({ id, children }: { id: string; children: ReactNode }) {
+  const last = useRef<{ id: string; node: ReactNode }>({ id, node: children })
+  const [leaving, setLeaving] = useState<{ id: string; node: ReactNode }[]>([])
+  useLayoutEffect(() => {
+    const old = last.current
+    if (old.id === id) return
+    // só anima a saída de telas sem dados do usuário (login e carregamento)
+    if (old.id === 'login' || old.id === 'splash' || old.id === 'setup') {
+      setLeaving((l) => [...l.filter((x) => x.id !== old.id && x.id !== id), old])
+      setTimeout(() => setLeaving((l) => l.filter((x) => x !== old)), 700)
+    }
+  }, [id])
+  useEffect(() => { last.current = { id, node: children } })
+  return (
+    <>
+      {leaving.filter((l) => l.id !== id).map((l) => <div key={l.id} className={`screen leaving from-${l.id}`} aria-hidden="true">{l.node}</div>)}
+      <div key={id} className={`screen entering to-${id}`}>{children}</div>
+    </>
+  )
+}
+
 export default function App() {
   const booting = useApp((s) => s.booting)
   const userId = useApp((s) => s.userId)
   const me = useApp((s) => s.me)
   const ready = useApp((s) => s.structureLoaded)
   useEffect(() => { if (isConfigured) void boot() }, [])
-  let screen
-  if (!isConfigured) screen = <SetupNeeded />
-  else if (booting || (userId && !me) || (me && !ready)) screen = <div className="splash"><Gem size={150} /><span className="wordmark"><span>Krata</span></span></div>
-  else if (!userId || !me) screen = <Login />
-  else screen = <Shell />
+  let screen, id
+  if (!isConfigured) { screen = <SetupNeeded />; id = 'setup' }
+  else if (booting || (userId && !me) || (me && !ready)) {
+    id = 'splash'
+    screen = <div className="splash"><ShardField density={0.6} /><Gem size={150} interactive /><span className="wordmark"><span>Krata</span></span></div>
+  } else if (!userId || !me) { screen = <Login />; id = 'login' }
+  else { screen = <Shell />; id = 'app' }
   return (
     <>
-      {screen}
+      <ScreenSwitch id={id}>{screen}</ScreenSwitch>
       <AudioSink />
       <IncomingCall />
       <ModalRoot />

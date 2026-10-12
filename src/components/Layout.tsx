@@ -9,7 +9,7 @@ import {
 } from '../store/actions'
 import { channelTitle, dmPartnerIds, friendIds, openModal, presenceOf, set, useApp, type AppState } from '../store/app'
 import { joinVoice, toggleDeafen, toggleMute, useVoice, type VoiceMember } from '../voice/engine'
-import { Avatar, Logo, STATUS_LABEL, StatusDot, useClickOutside } from './ui'
+import { Avatar, Gem, STATUS_LABEL, StatusDot, useClickOutside } from './ui'
 
 const NONE: VoiceMember[] = []
 
@@ -26,7 +26,7 @@ export function Rail() {
   return (
     <nav className="rail" aria-label="Servidores">
       <button className={`rail-item home${!nav.serverId ? ' on' : ''}`} onClick={() => navigate({ serverId: null, channelId: null }, { keepPanel: true })} aria-label="Conversas e amigos" data-tip="Conversas" data-tip-side="right">
-        <span className="rail-face"><Logo size={30} /></span>
+        <span className="rail-face"><Gem size={34} speed={0.7} /></span>
         {totalDm > 0 && <span className="badge">{totalDm > 99 ? '99+' : totalDm}</span>}
       </button>
       {dmUnread.slice(0, 4).map((c) => {
@@ -41,8 +41,8 @@ export function Rail() {
       })}
       <span className="rail-sep" />
       <div className="rail-scroll">
-        {servers.map((sv) => (
-          <button key={sv.id} className={`rail-item${nav.serverId === sv.id ? ' on' : ''}${serverUnread(sv.id) ? ' unread' : ''}`} onClick={() => navigate({ serverId: sv.id, channelId: null }, { keepPanel: true })} aria-label={sv.name} aria-current={nav.serverId === sv.id} data-tip={sv.name} data-tip-side="right">
+        {servers.map((sv, i) => (
+          <button key={sv.id} style={{ ['--i' as string]: i }} className={`rail-item${nav.serverId === sv.id ? ' on' : ''}${serverUnread(sv.id) ? ' unread' : ''}`} onClick={() => navigate({ serverId: sv.id, channelId: null }, { keepPanel: true })} aria-label={sv.name} aria-current={nav.serverId === sv.id} data-tip={sv.name} data-tip-side="right">
             <span className="rail-face"><Avatar url={sv.icon_url} name={sv.name} seed={sv.id} size={48} square /></span>
           </button>
         ))}
@@ -116,13 +116,13 @@ function HomeSidebar() {
           <button className="icon-btn tiny" onClick={() => openModal({ type: 'newDm' })} aria-label="Nova conversa" data-tip="Nova conversa"><Plus size={16} /></button>
         </div>
         {dms.length === 0 && <p className="side-empty">Nenhuma conversa ainda. Adicione um amigo e chame para conversar.</p>}
-        {dms.map((c) => {
+        {dms.map((c, i) => {
           const ids = dmPartnerIds(state, c.id)
           const partner = state.profiles[ids[0]]
           const title = channelTitle(state, c)
           const inVoice = c.kind === 'dm' && !!state.online[ids[0]]?.voice
           return (
-            <button key={c.id} className={`side-item dm${nav.channelId === c.id ? ' on' : ''}${unread[c.id] ? ' unread' : ''}`} onClick={() => navigate({ serverId: null, channelId: c.id })}>
+            <button key={c.id} style={{ ['--i' as string]: i }} className={`side-item dm${nav.channelId === c.id ? ' on' : ''}${unread[c.id] ? ' unread' : ''}`} onClick={() => navigate({ serverId: null, channelId: c.id })}>
               {c.kind === 'dm' ? <Avatar profile={partner} name={title} size={34} status={presenceOf(state, ids[0])} /> : <span className="group-face"><Users size={17} /></span>}
               <span className="grow two-line">
                 <strong>{title}</strong>
@@ -196,11 +196,11 @@ function ServerSidebar({ serverId }: { serverId: string }) {
               <span>{category}</span>
               {admin && <button className="icon-btn tiny" aria-label={`Criar canal em ${category}`} data-tip="Criar canal" onClick={() => openModal({ type: 'channel', serverId, kind: list[0].kind as 'text' | 'voice', category })}><Plus size={16} /></button>}
             </div>
-            {list.map((c) => {
+            {list.map((c, i) => {
               const here = c.kind === 'voice' ? roster.filter((m) => m.channel_id === c.id) : NONE
               const on = c.kind === 'text' ? nav.channelId === c.id : voiceChannel === c.id
               return (
-                <div key={c.id}>
+                <div key={c.id} className="stagger" style={{ ['--i' as string]: i }}>
                   <div className={`side-item channel${on ? ' on' : ''}${unread[c.id] ? ' unread' : ''}`}>
                     <button className="channel-main" onClick={() => (c.kind === 'text' ? navigate({ serverId, channelId: c.id }) : void joinVoice(c.id))} aria-current={on} aria-label={c.kind === 'voice' ? `Entrar na sala de voz ${c.name}` : `Canal ${c.name}`}>
                       {c.kind === 'text' ? <Hash size={18} /> : <Volume2 size={18} />}
@@ -233,9 +233,9 @@ export function Sidebar({ children }: { children?: React.ReactNode }) {
 // ============================================================ lista de pessoas
 const ROLE_LABEL = { owner: 'Dono', admin: 'Administradores', member: 'Membros' } as const
 
-function PersonRow({ p, status, tag, onClick }: { p: Profile; status: Status | 'offline'; tag?: string; onClick: () => void }) {
+function PersonRow({ p, status, tag, onClick, index = 0 }: { p: Profile; status: Status | 'offline'; tag?: string; onClick: () => void; index?: number }) {
   return (
-    <button className={`person${status === 'offline' ? ' off' : ''}`} onClick={onClick}>
+    <button className={`person${status === 'offline' ? ' off' : ''}`} style={{ ['--i' as string]: index }} onClick={onClick}>
       <Avatar profile={p} size={34} status={status} />
       <span className="grow two-line"><strong style={{ color: status !== 'offline' && p.accent_color.toLowerCase() !== '#00a86b' ? p.accent_color : undefined }}>{p.display_name}</strong><span>{p.custom_status}</span></span>
       {tag && <span className="role-tag">{tag}</span>}
@@ -274,7 +274,7 @@ export function MembersPanel({ channel }: { channel: Channel }) {
         {sections.map((s) => (
           <div key={s.label}>
             <div className="side-label"><span>{s.label} — {s.rows.length}</span></div>
-            {s.rows.map((r) => <PersonRow key={r.p.id} {...r} onClick={() => openModal({ type: 'profile', userId: r.p.id })} />)}
+            {s.rows.map((r, i) => <PersonRow key={r.p.id} index={i} {...r} onClick={() => openModal({ type: 'profile', userId: r.p.id })} />)}
           </div>
         ))}
         {channel.kind === 'group' && (
@@ -363,10 +363,10 @@ export function FriendsView() {
             <div className="side-label"><span>{tab === 'online' ? 'Disponíveis' : 'Todos os amigos'} — {shown.length}</span></div>
             {shown.length === 0 ? <p className="muted pad">{tab === 'online' ? 'Nenhum amigo disponível agora.' : 'Ninguém com esse nome.'}</p> : (
               <ul className="friend-list">
-                {shown.map((p) => {
+                {shown.map((p, i) => {
                   const st = presenceOf(state, p.id)
                   return (
-                    <li key={p.id} className="friend-row">
+                    <li key={p.id} className="friend-row" style={{ ['--i' as string]: i }}>
                       <button className="plain friend-main" onClick={() => openModal({ type: 'profile', userId: p.id })}>
                         <Avatar profile={p} size={40} status={st} />
                         <span className="grow two-line"><strong>{p.display_name}</strong><span>{p.custom_status || STATUS_LABEL[st]}</span></span>
@@ -389,7 +389,7 @@ export function FriendsView() {
 export function Empty({ title, text, action }: { title: string; text: string; action?: React.ReactNode }) {
   return (
     <div className="empty">
-      <div className="empty-art" aria-hidden="true"><Logo size={56} /></div>
+      <div className="empty-art" aria-hidden="true"><Gem size={84} interactive speed={0.8} /></div>
       <h2>{title}</h2>
       <p className="muted">{text}</p>
       {action}

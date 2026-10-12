@@ -1,23 +1,27 @@
 import { Eye, EyeOff, MonitorUp, Paperclip, Sparkles } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { USERNAME_RX, errorText, loginEmail, supabase } from '../lib/supabase'
 import { usernameAvailable } from '../store/actions'
-import { Field, Gem, Logo } from './ui'
+import { Field, Gem, Logo, ShardField, useParallax } from './ui'
 
 function Stage({ children }: { children: React.ReactNode }) {
+  const root = useRef<HTMLDivElement>(null)
+  useParallax(root)
   return (
-    <div className="auth">
+    <div className="auth" ref={root}>
       <div className="auth-scene" aria-hidden="true">
-        <div className="auth-floor" />
-        <Gem size={260} className="auth-gem" />
+        <div className="auth-aurora" />
+        <div className="auth-floor-wrap"><div className="auth-floor" /></div>
+        <ShardField />
       </div>
+      <div className="auth-gem-wrap"><Gem size={260} className="auth-gem" interactive /></div>
       <section className="auth-pitch">
         <div className="wordmark"><Logo size={34} /><span>Krata</span></div>
-        <h1>Voz, chat e tela em 4K. Tudo liberado, para todo mundo.</h1>
+        <h1>{'Voz, chat e tela em 4K. Tudo liberado, para todo mundo.'.split(' ').map((word, i) => <span key={i} className="word" style={{ ['--i' as string]: i }}>{word} </span>)}</h1>
         <ul className="auth-points">
-          <li><MonitorUp size={18} /><span>Compartilhe a tela em até 4K a 60 quadros por segundo, com som.</span></li>
-          <li><Paperclip size={18} /><span>Envie fotos e vídeos de até 200 MB no chat.</span></li>
-          <li><Sparkles size={18} /><span>Avatar animado, banner, emojis próprios e mensagens longas sem pagar nada.</span></li>
+          <li style={{ ['--i' as string]: 0 }}><MonitorUp size={18} /><span>Compartilhe a tela em até 4K a 60 quadros por segundo, com som.</span></li>
+          <li style={{ ['--i' as string]: 1 }}><Paperclip size={18} /><span>Envie fotos e vídeos de até 200 MB no chat.</span></li>
+          <li style={{ ['--i' as string]: 2 }}><Sparkles size={18} /><span>Avatar animado, banner, emojis próprios e mensagens longas sem pagar nada.</span></li>
         </ul>
       </section>
       <div className="auth-card-wrap">{children}</div>
@@ -89,7 +93,11 @@ export function Login() {
     return () => { live = false; clearTimeout(t) }
   }, [username, mode])
 
-  const switchMode = (m: 'login' | 'signup') => { setMode(m); setError(null); setTouched(false); setConfirm('') }
+  const [flips, setFlips] = useState(0)
+  const switchMode = (m: 'login' | 'signup') => {
+    if (m === mode) return
+    setMode(m); setError(null); setTouched(false); setConfirm(''); setFlips((n) => n + 1)
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -121,8 +129,9 @@ export function Login() {
 
   return (
     <Stage>
-      <form className="auth-card" onSubmit={submit} noValidate>
-        <div className="auth-tabs" role="tablist">
+      <form className={`auth-card${flips ? (flips % 2 ? ' flip-a' : ' flip-b') : ''}${mode === 'signup' ? ' to-right' : ' to-left'}`} onSubmit={submit} noValidate>
+        <div className={`auth-tabs ${mode}`} role="tablist">
+          <span className="auth-tabs-pill" aria-hidden="true" />
           <button type="button" role="tab" aria-selected={mode === 'login'} className={mode === 'login' ? 'on' : ''} onClick={() => switchMode('login')}>Entrar</button>
           <button type="button" role="tab" aria-selected={mode === 'signup'} className={mode === 'signup' ? 'on' : ''} onClick={() => switchMode('signup')}>Criar conta</button>
         </div>

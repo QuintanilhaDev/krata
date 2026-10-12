@@ -15,8 +15,9 @@ import {
 import { channelTitle, closeModal, friendIds, openModal, presenceOf, toast, useApp, type ModalState } from '../store/app'
 import { joinVoice, reloadMic, saveVoiceSettings, voiceSettings } from '../voice/engine'
 import { Markdown, plain } from './Markdown'
-import { Avatar, Field, Modal, STATUS_LABEL, Spinner, Tilt } from './ui'
+import { Avatar, ErrorBoundary, Field, Modal, STATUS_LABEL, Spinner, Tilt } from './ui'
 import { PasswordInput, Strength, passwordError } from './Auth'
+import { motionLevel, setMotion } from '../lib/motion'
 import { ScreenShareModal } from './Voice'
 
 type Of<T extends ModalState['type']> = Extract<ModalState, { type: T }>
@@ -320,7 +321,8 @@ function ProfileCard({ userId }: Of<'profile'>) {
 
 function Settings() {
   const me = useApp((s) => s.me)!
-  const [tab, setTab] = useState<'perfil' | 'voz' | 'avisos' | 'conta'>('perfil')
+  const [tab, setTab] = useState<'perfil' | 'voz' | 'avisos' | 'visual' | 'conta'>('perfil')
+  const [motion, setMotionState] = useState(motionLevel())
   const [f, setF] = useState({ display_name: me.display_name, bio: me.bio, avatar_url: me.avatar_url, banner_url: me.banner_url, accent_color: me.accent_color })
   const [busy, setBusy] = useState(false)
   const [pass, setPass] = useState({ next: '', confirm: '', busy: false, touched: false })
@@ -357,8 +359,8 @@ function Settings() {
   return (
     <Modal title="Configurações" onClose={closeModal} wide>
       <div className="tabs pad" role="tablist">
-        {(['perfil', 'voz', 'avisos', 'conta'] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={`tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>{{ perfil: 'Perfil', voz: 'Voz e vídeo', avisos: 'Avisos', conta: 'Conta' }[t]}</button>
+        {(['perfil', 'voz', 'avisos', 'visual', 'conta'] as const).map((t) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={`tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>{{ perfil: 'Perfil', voz: 'Voz e vídeo', avisos: 'Avisos', visual: 'Animações', conta: 'Conta' }[t]}</button>
         ))}
       </div>
       <div className="modal-body tall">
@@ -420,6 +422,15 @@ function Settings() {
                 setNotify(true); localStorage.setItem('krata-notify', 'on')
               }} /></label>
           </>
+        )}
+        {tab === 'visual' && (
+          <fieldset className="choice">
+            <legend>Animações</legend>
+            <div className="seg two">
+              <button type="button" aria-pressed={motion === 'full'} className={motion === 'full' ? 'on' : ''} onClick={() => { setMotion('full'); setMotionState('full') }}><strong>Completas</strong><span>Transições e efeitos 3D em tudo</span></button>
+              <button type="button" aria-pressed={motion === 'reduced'} className={motion === 'reduced' ? 'on' : ''} onClick={() => { setMotion('reduced'); setMotionState('reduced') }}><strong>Reduzidas</strong><span>Movimentos curtos e mais calmos</span></button>
+            </div>
+          </fieldset>
         )}
         {tab === 'conta' && (
           <>
@@ -600,7 +611,25 @@ function Confirm({ title, text, action, danger, onConfirm }: Of<'confirm'>) {
 
 export function ModalRoot() {
   const modal = useApp((s) => s.modal)
-  if (!modal) return null
+  // mantém a janela na tela por um instante ao fechar, para a animação de saída
+  const [shown, setShown] = useState<ModalState | null>(modal)
+  const [closing, setClosing] = useState(false)
+  useEffect(() => {
+    if (modal) { setShown(modal); setClosing(false); return }
+    setClosing(true)
+    const t = setTimeout(() => { setShown(null); setClosing(false) }, 220)
+    return () => clearTimeout(t)
+  }, [modal])
+  const loggedIn = useApp((s) => !!s.me)
+  if (!shown || !loggedIn) return null
+  return (
+    <div className={`modal-layer${closing ? ' closing' : ''}`}>
+      <ErrorBoundary label="Esta janela não carregou."><ModalView modal={shown} /></ErrorBoundary>
+    </div>
+  )
+}
+
+function ModalView({ modal }: { modal: ModalState }) {
   switch (modal.type) {
     case 'createServer': return <CreateServer />
     case 'joinServer': return <JoinServer {...modal} />
