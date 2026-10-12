@@ -9,6 +9,7 @@ import {
 } from '../store/actions'
 import { channelTitle, dmPartnerIds, friendIds, openModal, presenceOf, set, useApp, type AppState } from '../store/app'
 import { joinVoice, toggleDeafen, toggleMute, useVoice, type VoiceMember } from '../voice/engine'
+import { PrismaButton, PrismaEntry } from './Prisma'
 import { Avatar, Gem, STATUS_LABEL, StatusDot, useClickOutside } from './ui'
 
 const NONE: VoiceMember[] = []
@@ -25,7 +26,7 @@ export function Rail() {
   const serverUnread = (id: string) => channels.some((c) => c.server_id === id && unread[c.id] > 0)
   return (
     <nav className="rail" aria-label="Servidores">
-      <button className={`rail-item home${!nav.serverId ? ' on' : ''}`} onClick={() => navigate({ serverId: null, channelId: null }, { keepPanel: true })} aria-label="Conversas e amigos" data-tip="Conversas" data-tip-side="right">
+      <button data-prisma="home" className={`rail-item home${!nav.serverId ? ' on' : ''}`} onClick={() => navigate({ serverId: null, channelId: null }, { keepPanel: true })} aria-label="Conversas e amigos" data-tip="Conversas" data-tip-side="right">
         <span className="rail-face"><Gem size={34} speed={0.7} /></span>
         {totalDm > 0 && <span className="badge">{totalDm > 99 ? '99+' : totalDm}</span>}
       </button>
@@ -42,12 +43,12 @@ export function Rail() {
       <span className="rail-sep" />
       <div className="rail-scroll">
         {servers.map((sv, i) => (
-          <button key={sv.id} style={{ ['--i' as string]: i }} className={`rail-item${nav.serverId === sv.id ? ' on' : ''}${serverUnread(sv.id) ? ' unread' : ''}`} onClick={() => navigate({ serverId: sv.id, channelId: null }, { keepPanel: true })} aria-label={sv.name} aria-current={nav.serverId === sv.id} data-tip={sv.name} data-tip-side="right">
+          <button key={sv.id} data-prisma={`server-${sv.id}`} style={{ ['--i' as string]: i }} className={`rail-item${nav.serverId === sv.id ? ' on' : ''}${serverUnread(sv.id) ? ' unread' : ''}`} onClick={() => navigate({ serverId: sv.id, channelId: null }, { keepPanel: true })} aria-label={sv.name} aria-current={nav.serverId === sv.id} data-tip={sv.name} data-tip-side="right">
             <span className="rail-face"><Avatar url={sv.icon_url} name={sv.name} seed={sv.id} size={48} square /></span>
           </button>
         ))}
-        <button className="rail-item add" onClick={() => openModal({ type: 'createServer' })} aria-label="Criar um servidor" data-tip="Criar um servidor" data-tip-side="right"><span className="rail-face"><Plus size={22} /></span></button>
-        <button className="rail-item add" onClick={() => openModal({ type: 'joinServer' })} aria-label="Entrar com um convite" data-tip="Entrar com convite" data-tip-side="right"><span className="rail-face"><Compass size={21} /></span></button>
+        <button data-prisma="create-server" className="rail-item add" onClick={() => openModal({ type: 'createServer' })} aria-label="Criar um servidor" data-tip="Criar um servidor" data-tip-side="right"><span className="rail-face"><Plus size={22} /></span></button>
+        <button data-prisma="join-server" className="rail-item add" onClick={() => openModal({ type: 'joinServer' })} aria-label="Entrar com um convite" data-tip="Entrar com convite" data-tip-side="right"><span className="rail-face"><Compass size={21} /></span></button>
       </div>
     </nav>
   )
@@ -68,7 +69,7 @@ export function UserPanel() {
   useEffect(() => { if (menu) setCustom(me.custom_status) }, [menu, me.custom_status])
   const shown = me.status === 'invisible' ? 'offline' : me.status
   return (
-    <div className="user-panel" ref={ref}>
+    <div className="user-panel" ref={ref} data-prisma="user-panel">
       {menu && (
         <div className="pop status-menu" role="menu">
           <form onSubmit={(e) => { e.preventDefault(); void updateProfile({ custom_status: custom.trim() }); setMenu(false) }}>
@@ -88,9 +89,10 @@ export function UserPanel() {
           <span>{me.custom_status || STATUS_LABEL[me.status]}</span>
         </span>
       </button>
-      <button className={`icon-btn${muted ? ' off' : ''}`} onClick={() => void toggleMute()} aria-label={muted ? 'Ativar microfone' : 'Silenciar microfone'} aria-pressed={muted} data-tip={muted ? 'Ativar microfone' : 'Silenciar'}>{muted ? <MicOff size={18} /> : <Mic size={18} />}</button>
-      <button className={`icon-btn${deafened ? ' off' : ''}`} onClick={toggleDeafen} aria-label={deafened ? 'Voltar a ouvir' : 'Parar de ouvir'} aria-pressed={deafened} data-tip={deafened ? 'Voltar a ouvir' : 'Parar de ouvir'}>{deafened ? <HeadphoneOff size={18} /> : <Headphones size={18} />}</button>
-      <button className="icon-btn" onClick={() => openModal({ type: 'settings' })} aria-label="Configurações" data-tip="Configurações"><Settings size={18} /></button>
+      <button data-prisma="mute" className={`icon-btn${muted ? ' off' : ''}`} onClick={() => void toggleMute()} aria-label={muted ? 'Ativar microfone' : 'Silenciar microfone'} aria-pressed={muted} data-tip={muted ? 'Ativar microfone' : 'Silenciar'}>{muted ? <MicOff size={18} /> : <Mic size={18} />}</button>
+      <button data-prisma="deafen" className={`icon-btn${deafened ? ' off' : ''}`} onClick={toggleDeafen} aria-label={deafened ? 'Voltar a ouvir' : 'Parar de ouvir'} aria-pressed={deafened} data-tip={deafened ? 'Voltar a ouvir' : 'Parar de ouvir'}>{deafened ? <HeadphoneOff size={18} /> : <Headphones size={18} />}</button>
+      <PrismaButton />
+      <button data-prisma="settings" className="icon-btn" onClick={() => openModal({ type: 'settings' })} aria-label="Configurações" data-tip="Configurações"><Settings size={18} /></button>
     </div>
   )
 }
@@ -107,10 +109,11 @@ function HomeSidebar() {
         <button className="search-trigger" onClick={() => openModal({ type: 'switcher' })}><Search size={15} /> Buscar ou ir para…</button>
       </header>
       <div className="side-scroll">
-        <button className={`side-item${!nav.channelId ? ' on' : ''}`} onClick={() => navigate({ serverId: null, channelId: null })}>
+        <button data-prisma="friends" className={`side-item${!nav.channelId ? ' on' : ''}`} onClick={() => navigate({ serverId: null, channelId: null })}>
           <Users size={19} /> <span className="grow">Amigos</span>
           {pending > 0 && <span className="badge inline">{pending}</span>}
         </button>
+        <PrismaEntry />
         <div className="side-label">
           <span>Mensagens diretas</span>
           <button className="icon-btn tiny" onClick={() => openModal({ type: 'newDm' })} aria-label="Nova conversa" data-tip="Nova conversa"><Plus size={16} /></button>
@@ -174,7 +177,7 @@ function ServerSidebar({ serverId }: { serverId: string }) {
   return (
     <>
       <header className="side-head server" ref={ref}>
-        <button className="server-title" onClick={() => setMenu((v) => !v)} aria-haspopup="menu" aria-expanded={menu}>
+        <button data-prisma="server-menu" className="server-title" onClick={() => setMenu((v) => !v)} aria-haspopup="menu" aria-expanded={menu}>
           <span>{server.name}</span><ChevronDown size={17} className={menu ? 'flip' : ''} />
         </button>
         {menu && (
@@ -194,14 +197,14 @@ function ServerSidebar({ serverId }: { serverId: string }) {
           <div key={category} className="side-group">
             <div className="side-label">
               <span>{category}</span>
-              {admin && <button className="icon-btn tiny" aria-label={`Criar canal em ${category}`} data-tip="Criar canal" onClick={() => openModal({ type: 'channel', serverId, kind: list[0].kind as 'text' | 'voice', category })}><Plus size={16} /></button>}
+              {admin && <button data-prisma={`create-channel-${list[0].kind}`} className="icon-btn tiny" aria-label={`Criar canal em ${category}`} data-tip="Criar canal" onClick={() => openModal({ type: 'channel', serverId, kind: list[0].kind as 'text' | 'voice', category })}><Plus size={16} /></button>}
             </div>
             {list.map((c, i) => {
               const here = c.kind === 'voice' ? roster.filter((m) => m.channel_id === c.id) : NONE
               const on = c.kind === 'text' ? nav.channelId === c.id : voiceChannel === c.id
               return (
                 <div key={c.id} className="stagger" style={{ ['--i' as string]: i }}>
-                  <div className={`side-item channel${on ? ' on' : ''}${unread[c.id] ? ' unread' : ''}`}>
+                  <div data-prisma={`channel-${c.id}`} className={`side-item channel${on ? ' on' : ''}${unread[c.id] ? ' unread' : ''}`}>
                     <button className="channel-main" onClick={() => (c.kind === 'text' ? navigate({ serverId, channelId: c.id }) : void joinVoice(c.id))} aria-current={on} aria-label={c.kind === 'voice' ? `Entrar na sala de voz ${c.name}` : `Canal ${c.name}`}>
                       {c.kind === 'text' ? <Hash size={18} /> : <Volume2 size={18} />}
                       <span className="grow">{c.name}</span>

@@ -18,6 +18,7 @@ import { Markdown, plain } from './Markdown'
 import { Avatar, ErrorBoundary, Field, Modal, STATUS_LABEL, Spinner, Tilt } from './ui'
 import { PasswordInput, Strength, passwordError } from './Auth'
 import { motionLevel, setMotion } from '../lib/motion'
+import { PrismaSettings } from './Prisma'
 import { ScreenShareModal } from './Voice'
 
 type Of<T extends ModalState['type']> = Extract<ModalState, { type: T }>
@@ -319,11 +320,12 @@ function ProfileCard({ userId }: Of<'profile'>) {
   )
 }
 
-function Settings() {
+function Settings({ tab: initialTab }: Of<'settings'>) {
   const me = useApp((s) => s.me)!
-  const [tab, setTab] = useState<'perfil' | 'voz' | 'avisos' | 'visual' | 'conta'>('perfil')
+  const [tab, setTab] = useState<'perfil' | 'voz' | 'avisos' | 'visual' | 'prisma' | 'conta'>(
+    (['perfil', 'voz', 'avisos', 'visual', 'prisma', 'conta'].includes(initialTab || '') ? initialTab : 'perfil') as 'perfil')
   const [motion, setMotionState] = useState(motionLevel())
-  const [f, setF] = useState({ display_name: me.display_name, bio: me.bio, avatar_url: me.avatar_url, banner_url: me.banner_url, accent_color: me.accent_color })
+  const [f, setF] = useState({ display_name: me.display_name, bio: me.bio, avatar_url: me.avatar_url, banner_url: me.banner_url, accent_color: me.accent_color, pronoun: me.pronoun ?? null })
   const [busy, setBusy] = useState(false)
   const [pass, setPass] = useState({ next: '', confirm: '', busy: false, touched: false })
   const [voice, setVoice] = useState(voiceSettings())
@@ -331,7 +333,7 @@ function Settings() {
   const [sound, setSound] = useState(localStorage.getItem('krata-sounds') !== 'off')
   const [notify, setNotify] = useState(localStorage.getItem('krata-notify') === 'on' && 'Notification' in window && Notification.permission === 'granted')
   const banner = useRef<HTMLInputElement>(null)
-  const dirty = (Object.keys(f) as (keyof typeof f)[]).some((k) => f[k] !== me[k])
+  const dirty = (Object.keys(f) as (keyof typeof f)[]).some((k) => f[k] !== (me[k] ?? null))
 
   useEffect(() => {
     if (tab !== 'voz' || !navigator.mediaDevices?.enumerateDevices) return
@@ -359,8 +361,8 @@ function Settings() {
   return (
     <Modal title="Configurações" onClose={closeModal} wide>
       <div className="tabs pad" role="tablist">
-        {(['perfil', 'voz', 'avisos', 'visual', 'conta'] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={`tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>{{ perfil: 'Perfil', voz: 'Voz e vídeo', avisos: 'Avisos', visual: 'Animações', conta: 'Conta' }[t]}</button>
+        {(['perfil', 'prisma', 'voz', 'avisos', 'visual', 'conta'] as const).map((t) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={`tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>{{ perfil: 'Perfil', prisma: 'Prisma', voz: 'Voz e vídeo', avisos: 'Avisos', visual: 'Animações', conta: 'Conta' }[t]}</button>
         ))}
       </div>
       <div className="modal-body tall">
@@ -373,6 +375,12 @@ function Settings() {
               <Field label="Nome de usuário" hint="É o seu login, por isso não muda.">
                 <div className="input with-prefix"><span>@</span><input value={me.username} readOnly aria-label="Nome de usuário" /></div>
               </Field>
+              <div className="field">
+                <span className="field-label">Como a Prisma te chama</span>
+                <div className="seg two" role="radiogroup" aria-label="Pronome">
+                  {(['ele', 'ela'] as const).map((p) => <button type="button" key={p} role="radio" aria-checked={f.pronoun === p} className={f.pronoun === p ? 'on' : ''} onClick={() => setF({ ...f, pronoun: p })}><strong>{p === 'ele' ? 'Ele' : 'Ela'}</strong><span>{p === 'ele' ? 'bem-vindo' : 'bem-vinda'}</span></button>)}
+                </div>
+              </div>
               <Field label="Sobre mim" hint={`${f.bio.length}/300`}><textarea className="input" rows={3} maxLength={300} value={f.bio} onChange={(e) => setF({ ...f, bio: e.target.value })} /></Field>
               <div className="field">
                 <span className="field-label">Cor do perfil</span>
@@ -396,6 +404,7 @@ function Settings() {
             </div>
           </div>
         )}
+        {tab === 'prisma' && <PrismaSettings />}
         {tab === 'voz' && (
           <>
             <Field label="Microfone">
@@ -564,8 +573,8 @@ function Pins({ channelId }: Of<'pins'>) {
   useEffect(() => { void fetchPins(channelId).then(setList) }, [channelId])
   return <Modal title="Mensagens fixadas" onClose={closeModal}><div className="modal-body tall"><MessageResults list={list} empty="Nada fixado aqui ainda. Passe o mouse sobre uma mensagem e clique no alfinete." /></div></Modal>
 }
-function SearchModal({ channelId }: Of<'search'>) {
-  const [q, setQ] = useState('')
+function SearchModal({ channelId, query }: Of<'search'>) {
+  const [q, setQ] = useState(query || '')
   const [list, setList] = useState<Message[] | null>([])
   useEffect(() => {
     if (q.trim().length < 2) { setList([]); return }
@@ -635,7 +644,7 @@ function ModalView({ modal }: { modal: ModalState }) {
     case 'joinServer': return <JoinServer {...modal} />
     case 'serverSettings': return <ServerSettings {...modal} />
     case 'channel': return <ChannelModal key={modal.channel?.id || 'new'} {...modal} />
-    case 'settings': return <Settings />
+    case 'settings': return <Settings {...modal} />
     case 'profile': return <ProfileCard {...modal} />
     case 'newDm': return <NewDm />
     case 'invite': return <Invite {...modal} />

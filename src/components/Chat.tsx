@@ -15,6 +15,8 @@ import { channelTitle, dmPartnerIds, openModal, presenceOf, set, toast, useApp }
 import { joinVoice, toggleCamera, useVoice } from '../voice/engine'
 import { EmojiPicker } from './EmojiPicker'
 import { Markdown, plain } from './Markdown'
+import { channelMention } from '../prisma/agent'
+import { PRISMA_PROFILE, PrismaMark } from './Prisma'
 import { Avatar, ErrorBoundary, Spinner } from './ui'
 
 const EMPTY: Message[] = []
@@ -44,7 +46,7 @@ function ChatHeader({ channel }: { channel: Channel }) {
       <div className="chat-head-actions">
         {isDm && !calling && (
           <>
-            <button className="icon-btn" data-tip="Ligar" aria-label="Iniciar chamada de voz" onClick={() => void joinVoice(channel.id, { ring: true })}><Phone size={19} /></button>
+            <button data-prisma="call" className="icon-btn" data-tip="Ligar" aria-label="Iniciar chamada de voz" onClick={() => void joinVoice(channel.id, { ring: true })}><Phone size={19} /></button>
             <button className="icon-btn hide-narrow" data-tip="Chamada de vídeo" aria-label="Iniciar chamada de vídeo" onClick={() => void joinVoice(channel.id, { ring: true }).then(() => toggleCamera())}><Video size={20} /></button>
           </>
         )}
@@ -114,14 +116,15 @@ const MessageItem = memo(function MessageItem({ m, fresh, compact, author, repli
     return [...map.entries()]
   }, [m.reactions, uid])
 
-  const name = author?.display_name || 'Usuário'
+  const bot = m.bot === 'prisma'
+  const name = bot ? 'Prisma' : author?.display_name || 'Usuário'
   const openProfile = () => openModal({ type: 'profile', userId: m.author_id })
   const stable = !m.pending && !m.failed
 
   return (
     <article
       id={`msg-${m.id}`}
-      className={`msg${fresh ? ' fresh' : ''}${compact ? ' compact' : ''}${m.pending ? ' pending' : ''}${m.failed ? ' failed' : ''}${mentioned ? ' mentioned' : ''}${active || picker ? ' active' : ''}${m.pinned ? ' pinned' : ''}`}
+      className={`msg${bot ? ' bot' : ''}${fresh ? ' fresh' : ''}${compact ? ' compact' : ''}${m.pending ? ' pending' : ''}${m.failed ? ' failed' : ''}${mentioned ? ' mentioned' : ''}${active || picker ? ' active' : ''}${m.pinned ? ' pinned' : ''}`}
       onClick={(e) => { if (isCoarse() && !(e.target as HTMLElement).closest('a,button,video,audio,textarea')) setActive((v) => !v) }}
       onMouseLeave={() => setActive(false)}
     >
@@ -137,12 +140,14 @@ const MessageItem = memo(function MessageItem({ m, fresh, compact, author, repli
       )}
       <div className="msg-gutter">
         {compact ? <time className="msg-mini-time" dateTime={m.created_at}>{clock(m.created_at)}</time>
+          : bot ? <span className="bot-avatar" aria-hidden="true"><PrismaMark size={22} /></span>
           : <button className="plain" onClick={openProfile} aria-label={`Ver perfil de ${name}`}><Avatar profile={author} name={name} seed={m.author_id} size={40} /></button>}
       </div>
       <div className="msg-body">
         {!compact && (
           <header className="msg-head">
-            <button className="msg-author" onClick={openProfile} style={{ color: author?.accent_color && author.accent_color.toLowerCase() !== '#00a86b' ? author.accent_color : undefined }}>{name}</button>
+            {bot ? <><span className="msg-author bot">Prisma</span><span className="bot-tag">IA</span><span className="bot-for">a pedido de {author?.display_name || 'alguém'}</span></>
+              : <button className="msg-author" onClick={openProfile} style={{ color: author?.accent_color && author.accent_color.toLowerCase() !== '#00a86b' ? author.accent_color : undefined }}>{name}</button>}
             <time dateTime={m.created_at} title={new Date(m.created_at).toLocaleString('pt-BR')}>{stamp(m.created_at)}</time>
             {m.pinned && <span className="msg-pin" title="Mensagem fixada"><Pin size={12} /></span>}
           </header>
@@ -190,7 +195,7 @@ const MessageItem = memo(function MessageItem({ m, fresh, compact, author, repli
           {QUICK_REACTIONS.slice(0, 3).map((e) => <button key={e} className="hide-touch" onClick={() => void toggleReaction(m, e)} aria-label={`Reagir com ${e}`}>{e}</button>)}
           <button data-tip="Reagir" aria-label="Reagir" onClick={() => setPicker((v) => !v)}><Smile size={17} /></button>
           <button data-tip="Responder" aria-label="Responder" onClick={() => { set((s) => ({ replyingTo: { ...s.replyingTo, [m.channel_id]: m.id } })); document.getElementById('composer-input')?.focus() }}><CornerUpLeft size={17} /></button>
-          {mine && <button data-tip="Editar" aria-label="Editar" onClick={() => set({ editing: m.id })}><Pencil size={16} /></button>}
+          {mine && !bot && <button data-tip="Editar" aria-label="Editar" onClick={() => set({ editing: m.id })}><Pencil size={16} /></button>}
           {canPin && <button data-tip={m.pinned ? 'Desafixar' : 'Fixar'} aria-label={m.pinned ? 'Desafixar' : 'Fixar'} onClick={() => void setPinned(m, !m.pinned)}><Pin size={16} /></button>}
           {m.content && <button data-tip="Copiar texto" aria-label="Copiar texto" onClick={() => void navigator.clipboard?.writeText(m.content).then(() => toast('Texto copiado', 'ok'))}><Copy size={16} /></button>}
           {(mine || canModerate) && (
@@ -289,7 +294,7 @@ function MessageList({ channel }: { channel: Channel }) {
               {items.map((m, i) => {
                 const before = items[i - 1]
                 const newDay = !before || !sameDay(before.created_at, m.created_at)
-                const compact = !newDay && !m.reply_to && before.author_id === m.author_id && new Date(m.created_at).getTime() - new Date(before.created_at).getTime() < 7 * 60000
+                const compact = !newDay && !m.reply_to && before.author_id === m.author_id && !before.bot === !m.bot && new Date(m.created_at).getTime() - new Date(before.created_at).getTime() < 7 * 60000
                 const replied = m.reply_to ? byId.get(m.reply_to) ?? replyCache[m.reply_to] ?? null : undefined
                 return (
                   <div key={m.id}>
@@ -352,7 +357,8 @@ function Composer({ channel, dropped }: { channel: Channel; dropped: File[] | nu
     if (!mention) return []
     const ids = channel.server_id ? (members || []).map((m) => m.user_id) : dmMembers.filter((m) => m.channel_id === channel.id).map((m) => m.user_id)
     const q = mention.query.toLowerCase()
-    return ids.map((id) => profiles[id]).filter((p): p is Profile => !!p && p.id !== uid && (p.username.includes(q) || p.display_name.toLowerCase().includes(q))).slice(0, 6)
+    const people = ids.map((id) => profiles[id]).filter((p): p is Profile => !!p && p.id !== uid && (p.username.includes(q) || p.display_name.toLowerCase().includes(q))).slice(0, 6)
+    return 'prisma'.includes(q) ? [PRISMA_PROFILE, ...people].slice(0, 6) : people
   }, [mention, members, dmMembers, profiles, channel, uid])
 
   function onChange(value: string, caret: number) {
@@ -385,6 +391,7 @@ function Composer({ channel, dropped }: { channel: Channel; dropped: File[] | nu
     if (body.trim().length > 4000) return toast('A mensagem passa de 4.000 caracteres.', 'error')
     setText(''); setFiles([]); setMention(null); drafts.delete(channel.id)
     const ok = await sendMessage(channel.id, body, sending, replyId || null)
+    if (ok && /(^|\s)@prisma\b/i.test(body)) void channelMention(channel.id, body)
     if (!ok && sending.length) { setText((t) => t || body); setFiles((f) => (f.length ? f : sending)) }
   }
 
@@ -427,12 +434,12 @@ function Composer({ channel, dropped }: { channel: Channel; dropped: File[] | nu
         <ul className="mention-list pop" role="listbox" aria-label="Mencionar alguém">
           {candidates.map((p, i) => (
             <li key={p.id} role="option" aria-selected={i === mention.index} className={i === mention.index ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); completeMention(p) }}>
-              <Avatar profile={p} size={24} /> <strong>{p.display_name}</strong> <span className="muted">@{p.username}</span>
+              {p.id === PRISMA_PROFILE.id ? <span className="bot-avatar small"><PrismaMark size={14} /></span> : <Avatar profile={p} size={24} />} <strong>{p.display_name}</strong> <span className="muted">{p.id === PRISMA_PROFILE.id ? 'assistente · responde aqui' : `@${p.username}`}</span>
             </li>
           ))}
         </ul>
       )}
-      <div className={`composer${replyMsg ? ' replying' : ''}`}>
+      <div className={`composer${replyMsg ? ' replying' : ''}`} data-prisma="composer">
         {replyMsg && (
           <div className="composer-reply">
             <CornerUpLeft size={14} />

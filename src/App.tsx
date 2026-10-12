@@ -3,6 +3,7 @@ import { Login, SetupNeeded } from './components/Auth'
 import { ChatView } from './components/Chat'
 import { Empty, FriendsView, MembersPanel, Rail, Sidebar, UserPanel } from './components/Layout'
 import { ModalRoot } from './components/Modals'
+import { PrismaRoot } from './components/Prisma'
 import { AudioSink, CallPill, IncomingCall, VoiceBar, VoiceStage } from './components/Voice'
 import { ErrorBoundary, Gem, ShardField, Toasts } from './components/ui'
 import { applyMotion } from './lib/motion'
@@ -120,6 +121,7 @@ export default function App() {
       <AudioSink />
       <IncomingCall />
       <ModalRoot />
+      {id === 'app' && <ErrorBoundary><PrismaRoot /></ErrorBoundary>}
       <Toasts />
     </>
   )

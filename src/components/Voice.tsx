@@ -167,11 +167,11 @@ export function Controls({ compact }: { compact?: boolean }) {
   const screen = useVoice((v) => v.screen)
   return (
     <div className={`call-controls${compact ? ' compact' : ''}`} role="toolbar" aria-label="Controles da chamada">
-      <button className={`ctl${muted ? ' off' : ''}`} onClick={() => void toggleMute()} aria-pressed={muted} aria-label={muted ? 'Ativar microfone' : 'Silenciar microfone'} data-tip={muted ? 'Ativar microfone' : 'Silenciar'}>{muted ? <MicOff size={20} /> : <Mic size={20} />}</button>
-      {!compact && <button className={`ctl${deafened ? ' off' : ''}`} onClick={toggleDeafen} aria-pressed={deafened} aria-label={deafened ? 'Voltar a ouvir' : 'Parar de ouvir'} data-tip={deafened ? 'Voltar a ouvir' : 'Parar de ouvir'}>{deafened ? <HeadphoneOff size={20} /> : <Headphones size={20} />}</button>}
-      <button className={`ctl${camera ? ' live' : ''}`} onClick={() => void toggleCamera()} aria-pressed={camera} aria-label={camera ? 'Desligar câmera' : 'Ligar câmera'} data-tip={camera ? 'Desligar câmera' : 'Ligar câmera'}>{camera ? <Video size={20} /> : <VideoOff size={20} />}</button>
-      <button className={`ctl${screen ? ' live' : ''}`} onClick={() => openModal({ type: 'screenShare' })} aria-pressed={screen} aria-label={screen ? 'Ajustar ou parar transmissão de tela' : 'Compartilhar tela'} data-tip={screen ? 'Transmissão' : 'Compartilhar tela'}>{screen ? <MonitorUp size={20} /> : <MonitorOff size={20} />}</button>
-      <button className="ctl hang" onClick={() => void leaveVoice()} aria-label="Sair da chamada" data-tip="Sair da chamada"><PhoneOff size={20} /></button>
+      <button data-prisma="mute" className={`ctl${muted ? ' off' : ''}`} onClick={() => void toggleMute()} aria-pressed={muted} aria-label={muted ? 'Ativar microfone' : 'Silenciar microfone'} data-tip={muted ? 'Ativar microfone' : 'Silenciar'}>{muted ? <MicOff size={20} /> : <Mic size={20} />}</button>
+      {!compact && <button data-prisma="deafen" className={`ctl${deafened ? ' off' : ''}`} onClick={toggleDeafen} aria-pressed={deafened} aria-label={deafened ? 'Voltar a ouvir' : 'Parar de ouvir'} data-tip={deafened ? 'Voltar a ouvir' : 'Parar de ouvir'}>{deafened ? <HeadphoneOff size={20} /> : <Headphones size={20} />}</button>}
+      <button data-prisma="voice-camera" className={`ctl${camera ? ' live' : ''}`} onClick={() => void toggleCamera()} aria-pressed={camera} aria-label={camera ? 'Desligar câmera' : 'Ligar câmera'} data-tip={camera ? 'Desligar câmera' : 'Ligar câmera'}>{camera ? <Video size={20} /> : <VideoOff size={20} />}</button>
+      <button data-prisma="voice-screen" className={`ctl${screen ? ' live' : ''}`} onClick={() => openModal({ type: 'screenShare' })} aria-pressed={screen} aria-label={screen ? 'Ajustar ou parar transmissão de tela' : 'Compartilhar tela'} data-tip={screen ? 'Transmissão' : 'Compartilhar tela'}>{screen ? <MonitorUp size={20} /> : <MonitorOff size={20} />}</button>
+      <button data-prisma="voice-leave" className="ctl hang" onClick={() => void leaveVoice()} aria-label="Sair da chamada" data-tip="Sair da chamada"><PhoneOff size={20} /></button>
     </div>
   )
 }

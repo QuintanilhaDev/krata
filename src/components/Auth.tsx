@@ -93,6 +93,7 @@ export function Login() {
     return () => { live = false; clearTimeout(t) }
   }, [username, mode])
 
+  const [pronoun, setPronoun] = useState<'ele' | 'ela' | null>(null)
   const [flips, setFlips] = useState(0)
   const switchMode = (m: 'login' | 'signup') => {
     if (m === mode) return
@@ -113,16 +114,19 @@ export function Login() {
     }
     setTouched(true)
     if (!name.trim()) return setError('Escreva como quer ser chamado.')
+    if (!pronoun) return setError('Escolha “Ele” ou “Ela”.')
     if (!USERNAME_RX.test(username) || free === false) return setError(userError || 'Escolha um nome de usuário válido.')
     if (passwordError(password)) return
     if (confirm !== password) return
     setBusy(true)
+    // a Prisma dá as boas-vindas assim que a conta abrir
+    try { sessionStorage.setItem('krata-welcome', pronoun) } catch { /* sem armazenamento */ }
     const { data, error } = await supabase.auth.signUp({
       email: loginEmail(username), password,
-      options: { data: { username, display_name: name.trim() } },
+      options: { data: { username, display_name: name.trim(), pronoun } },
     })
     setBusy(false)
-    if (error) return setError(errorText(error))
+    if (error) { try { sessionStorage.removeItem('krata-welcome') } catch { /* sem armazenamento */ } return setError(errorText(error)) }
     if (!data.session) setError('Conta criada, mas o Supabase pediu confirmação por e-mail. Desligue "Confirm email" em Authentication → Providers → Email.')
     // com sessão, a tela muda sozinha
   }
@@ -140,6 +144,16 @@ export function Login() {
             <Field label="Nome de exibição" hint="É assim que as pessoas vão ver você. Dá para mudar depois.">
               <input className="input" value={name} maxLength={32} autoFocus autoComplete="nickname" placeholder="Como quer ser chamado" onChange={(e) => setName(e.target.value)} />
             </Field>
+          )}
+          {mode === 'signup' && (
+            <div className="field">
+              <span className="field-label" id="pronoun-label">Você é</span>
+              <div className={`pronoun-pick${touched && !pronoun ? ' invalid' : ''}`} role="radiogroup" aria-labelledby="pronoun-label">
+                {(['ele', 'ela'] as const).map((p) => (
+                  <button type="button" key={p} role="radio" aria-checked={pronoun === p} className={pronoun === p ? 'on' : ''} onClick={() => { setPronoun(p); setError(null) }}>{p === 'ele' ? 'Ele' : 'Ela'}</button>
+                ))}
+              </div>
+            </div>
           )}
           <Field label="Nome de usuário" error={userError} hint={mode === 'signup' ? (free && username ? 'Disponível' : 'Você entra com ele, e seus amigos te adicionam por ele. Não muda depois.') : undefined}>
             <div className="input with-prefix">

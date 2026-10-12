@@ -71,6 +71,28 @@ VITE_TURN_USERNAME=usuario
 VITE_TURN_CREDENTIAL=senha
 ```
 
+### 7. Ligar a Prisma (assistente)
+
+A Prisma já funciona sem nada configurado: todos os comandos do app (criar servidor, trocar foto, entrar na call, mutar…)
+são entendidos pelo cérebro dela, que roda no navegador. Para ligar a conversa livre, a voz no iPhone e as respostas nos canais:
+
+1. No **SQL Editor** do Supabase, rode `supabase/prisma.sql` (se você rodou o `schema.sql` novo inteiro, ele já está lá).
+2. Crie uma chave grátis em **console.groq.com → API Keys**.
+3. Na Vercel → **Settings → Environment Variables**, cadastre (em Production) e publique de novo:
+
+| Variável | Para quê |
+|---|---|
+| `GROQ_API_KEY` | conversa livre, resumos e voz no iPhone (Whisper) |
+| `SUPABASE_SERVICE_ROLE_KEY` | respostas da Prisma dentro dos canais (`@prisma`), limite diário por pessoa e aprendizado compartilhado. Fica só no servidor: **nunca** coloque com prefixo `VITE_` |
+| `SUPABASE_URL` | a mesma URL do `VITE_SUPABASE_URL` (opcional, ele usa a outra se faltar) |
+| `PRISMA_DAILY_LIMIT` | papos com a IA por pessoa por dia (padrão 40; comandos não contam) |
+| `AZURE_SPEECH_KEY` e `AZURE_SPEECH_REGION` | opcional: voz neural feminina (Thalita) com o brilho cristalino. Sem isso ela usa a melhor voz feminina do aparelho |
+
+Como usar: fale **“Prisma”** no começo ou no meio da frase (“Prisma, cria um servidor chamado Tropa”, “ô Prisma, me muta”).
+No computador e no Android ela ouve o tempo todo (o navegador pede o microfone uma vez). No iPhone o navegador não deixa
+ouvir continuamente: toque no botão flutuante dela para falar (segure para abrir o chat escrito). Em qualquer canal,
+escreva `@prisma` + pergunta e ela responde ali para todo mundo.
+
 ### Rodar no computador (opcional)
 
 ```bash
@@ -121,7 +143,9 @@ npm run dev
 - **4K de verdade** depende da internet de envio e da placa de vídeo de quem transmite.
 - **Celulares** não permitem compartilhar a tela pelo navegador (limitação do Android/iOS). Assistir funciona normalmente.
 - Notificações só chegam com o Krata aberto em alguma aba.
-- Não fazem parte desta versão: bots e integrações, tópicos/fóruns, palcos, permissões por canal, enquetes e encaminhar mensagens.
+- **Prisma:** o plano grátis da Groq tem um limite diário para a conta inteira (por volta de mil conversas por dia no modelo
+  principal; quando acaba ela troca de modelo sozinha). Comandos do app não gastam nada. Com muita gente, use o plano pago.
+- Não fazem parte desta versão: integrações externas, tópicos/fóruns, palcos, permissões por canal, enquetes e encaminhar mensagens.
 
 ## Estrutura
 
@@ -130,7 +154,10 @@ supabase/schema.sql      banco, regras de segurança, funções, arquivos e temp
 src/lib/                 cliente Supabase, envio de arquivos, telefone, sons
 src/store/               estado do app e tudo que conversa com o banco
 src/voice/engine.ts      chamadas, câmera e compartilhamento de tela (WebRTC)
-src/components/          telas: login, chat, lateral, janelas, chamada
+src/components/          telas: login, chat, lateral, janelas, chamada, Prisma
+src/prisma/              Prisma: cérebro local (aprendizado de máquina), voz, voo da fada, comandos
+api/                     funções do servidor da Prisma (Groq, Whisper, voz neural)
+supabase/prisma.sql      tabelas e regras da Prisma
 src/styles/app.css       identidade visual (ônix, jade e branco) e animações
 vercel.json              configuração da hospedagem
 ```

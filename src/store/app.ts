@@ -19,7 +19,7 @@ export type ModalState =
   | { type: 'screenShare' }
   | { type: 'image'; url: string; name: string }
   | { type: 'pins'; channelId: string }
-  | { type: 'search'; channelId: string }
+  | { type: 'search'; channelId: string; query?: string }
   | { type: 'confirm'; title: string; text: string; action: string; danger?: boolean; onConfirm: () => void | Promise<void> }
 
 export interface AppState {

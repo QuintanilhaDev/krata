@@ -14,6 +14,7 @@ export interface Profile {
   custom_status: string
   onboarded: boolean
   created_at: string
+  pronoun?: 'ele' | 'ela' | null
 }
 export interface Server {
   id: string
@@ -65,6 +66,7 @@ export interface Message {
   edited_at: string | null
   created_at: string
   reactions: Reaction[]
+  bot?: 'prisma' | null
   pending?: boolean
   failed?: boolean
 }
