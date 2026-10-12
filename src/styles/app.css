@@ -1038,3 +1038,15 @@ html, body { overscroll-behavior: none; }
 }
 .app-notify { display: grid; gap: 4px; }
 .app-notify strong svg { vertical-align: -2px; margin-right: 4px; color: var(--jade-hi); }
+
+/* atualização do app */
+.app-update { position: fixed; z-index: 115; left: 50%; top: calc(10px + env(safe-area-inset-top)); transform: translateX(-50%); width: min(460px, calc(100vw - 20px)); display: flex; align-items: center; gap: 12px; padding: 12px 10px 12px 14px; border-radius: 18px; background: linear-gradient(150deg, rgba(20, 52, 40, 0.97), rgba(8, 12, 10, 0.98)); border: 1px solid rgba(61, 219, 164, 0.4); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 30px rgba(0, 168, 107, 0.18); backdrop-filter: blur(10px); animation: update-in 0.6s var(--spring); }
+@keyframes update-in { from { opacity: 0; transform: translateX(-50%) translateY(-30px) perspective(600px) rotateX(30deg); } }
+.app-update-icon { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: rgba(0, 168, 107, 0.2); color: var(--jade-hi); flex: none; }
+.app-update-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.app-update-text strong { color: var(--white); font-size: 14px; }
+.app-update-text > span { color: var(--text-2); font-size: 12.5px; line-height: 1.35; }
+.app-update-bar { display: block; height: 4px; border-radius: 4px; background: rgba(255, 255, 255, 0.1); overflow: hidden; margin-top: 6px; }
+.app-update-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--jade), var(--jade-hi)); border-radius: inherit; transition: width 0.3s; }
+.app-update .btn { flex: none; white-space: nowrap; }
+.spin { animation: spin 1s linear infinite; }

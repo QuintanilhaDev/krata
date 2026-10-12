@@ -4,6 +4,7 @@ import { ChatView } from './components/Chat'
 import { Empty, FriendsView, MembersPanel, Rail, Sidebar, UserPanel } from './components/Layout'
 import { ModalRoot } from './components/Modals'
 import { PrismaRoot } from './components/Prisma'
+import { UpdateBanner } from './components/AppUpdate'
 import { AudioSink, CallPill, IncomingCall, VoiceBar, VoiceStage } from './components/Voice'
 import { ErrorBoundary, Gem, ShardField, Toasts } from './components/ui'
 import { applyMotion } from './lib/motion'
@@ -99,7 +100,7 @@ document.addEventListener('scroll', (e) => {
 window.addEventListener('scroll', () => { if (scrollX || scrollY) window.scrollTo(0, 0) })
 
 // app Android desatualizado: avisa que tem versão nova do .apk
-if (window.KrataNative) {
+if (window.KrataNative && !window.KrataNative.updateInfo) {
   try {
     const have = window.KrataNative.version().split('.').map(Number)
     const want = APP_VERSION.split('.').map(Number)
@@ -179,6 +180,7 @@ export default function App() {
       <IncomingCall />
       <ModalRoot />
       {id === 'app' && <ErrorBoundary><PrismaRoot /></ErrorBoundary>}
+      {window.KrataNative?.updateInfo && <ErrorBoundary><UpdateBanner /></ErrorBoundary>}
       <Toasts />
     </>
   )

@@ -14,6 +14,7 @@ public class SyncJob extends JobService {
     static void schedule(Context c) {
         JobScheduler js = c.getSystemService(JobScheduler.class);
         if (js == null || js.getPendingJob(JOB_ID) != null) return;
+        // (também confere atualização do app de tempos em tempos)
         JobInfo job = new JobInfo.Builder(JOB_ID, new ComponentName(c, SyncJob.class))
                 .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
                 .setPeriodic(15 * 60 * 1000L)
@@ -32,6 +33,7 @@ public class SyncJob extends JobService {
         new Thread(new Runnable() {
             @Override public void run() {
                 if (!MainActivity.visible) Inbox.sync(SyncJob.this);
+                Updater.checkQuietly(SyncJob.this);
                 SyncService.start(SyncJob.this);
                 jobFinished(params, false);
             }

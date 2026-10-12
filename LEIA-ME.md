@@ -112,8 +112,13 @@ e `supabase/notificacoes.sql` (notificações do app).
 "Receber na hora" ligada (fica um ícone discreto na barra), ou a cada 15 minutos sem ela. Em alguns celulares (Xiaomi,
 Samsung, Motorola) é preciso liberar o Krata na economia de bateria. O botão para isso fica em Configurações → App Android.
 
-Para gerar uma versão nova do app: aumente `versionCode`/`versionName` em `android/AndroidManifest.xml` e `APP_VERSION` em
-`src/lib/native.ts`, e rode `android/build-apk.sh`. **Assine sempre com a mesma chave** (arquivos `krata-key.pem` e
+**Atualizações do app:** a partir da versão 1.3.0, o próprio app confere `krata-version.json` no site (ao abrir e a cada
+6 horas com ele fechado). Quando tem versão nova, aparece um aviso com o botão **Atualizar**, que baixa e abre a instalação ali
+mesmo (na primeira vez o Android pede para liberar "Permitir desta fonte"). Com o app fechado, chega uma notificação.
+
+Para lançar uma versão nova do app: aumente `versionCode`/`versionName` em `android/AndroidManifest.xml`, `VERSION` em
+`MainActivity.java` e `APP_VERSION` em `src/lib/native.ts`, escreva a novidade em `android/NOVIDADES.txt` e rode
+`android/build-apk.sh` (ele gera `public/krata.apk` e `public/krata-version.json`). Publique o site e pronto. **Assine sempre com a mesma chave** (arquivos `krata-key.pem` e
 `krata-cert.pem` entregues à parte). Sem ela o Android não deixa atualizar o app instalado. Não coloque a chave no GitHub.
 
 ### Rodar no computador (opcional)

@@ -51,7 +51,7 @@ import java.util.Map;
 public class MainActivity extends Activity {
     static final String APP_URL = "https://krata-henna.vercel.app/";
     static final String APP_HOST = Uri.parse(APP_URL).getHost();
-    static final String VERSION = "1.2.0";
+    static final String VERSION = "1.3.0";
     static volatile boolean visible = false;
 
     private static final int REQ_SCREEN = 41;
@@ -73,6 +73,7 @@ public class MainActivity extends Activity {
     private TextToSpeech tts;
     private volatile boolean pageReady = false;
     private String pendingChannel, pendingServer;
+    private boolean pendingUpdate = false;
     private volatile boolean ttsReady = false;
 
     @Override
@@ -139,8 +140,10 @@ public class MainActivity extends Activity {
         if (saved != null) web.restoreState(saved);
         else web.loadUrl(startUrl(getIntent()));
 
+        Updater.check(this, false);
         // notificações: volta a agendar a busca em segundo plano
-        if (Inbox.configured(this)) { SyncJob.schedule(this); SyncService.start(this); }
+        SyncJob.schedule(this);
+        if (Inbox.configured(this)) SyncService.start(this);
     }
 
     private String startUrl(Intent intent) {
@@ -159,6 +162,11 @@ public class MainActivity extends Activity {
 
     /** Toque numa notificação: guarda qual conversa abrir. */
     private boolean takeOpen(Intent intent) {
+        if (intent != null && intent.getBooleanExtra("update", false)) {
+            Updater.check(this, false);
+            if (pageReady) web.evaluateJavascript("window.dispatchEvent(new Event('krata-update'))", null);
+            else pendingUpdate = true;
+        }
         String ch = intent != null ? intent.getStringExtra("channel") : null;
         if (ch == null || ch.isEmpty()) return false;
         pendingChannel = ch;
@@ -167,6 +175,7 @@ public class MainActivity extends Activity {
     }
 
     private void flushOpen() {
+        if (pendingUpdate && pageReady) { pendingUpdate = false; web.evaluateJavascript("window.dispatchEvent(new Event('krata-update'))", null); }
         if (pendingChannel == null || !pageReady) return;
         String js = "window.__krataOpen && window.__krataOpen(" + JSONObject.quote(pendingServer == null ? "" : pendingServer) + "," + JSONObject.quote(pendingChannel) + ")";
         pendingChannel = null;
@@ -177,6 +186,8 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         visible = true;
+        Updater.resume(this);
+        if (System.currentTimeMillis() - Updater.prefs(this).getLong("checked", 0) > 30L * 60 * 1000) Updater.check(this, false);
         // avisa o site que o app voltou para a tela (marca a conversa aberta como lida e limpa as notificações dela)
         if (web != null) web.evaluateJavascript("document.dispatchEvent(new Event('visibilitychange'))", null);
     }
@@ -336,6 +347,16 @@ public class MainActivity extends Activity {
         @JavascriptInterface public String screenCodec() { return ScreenHub.codec; }
 
         @JavascriptInterface public String screenMode() { return ScreenHub.mode; }
+
+        // ---------------------------------------------------------- atualização dentro do app
+        @JavascriptInterface public String updateInfo() { return Updater.info(MainActivity.this); }
+
+        @JavascriptInterface public void checkUpdate() { Updater.check(MainActivity.this, false); }
+
+        @JavascriptInterface public void installUpdate() {
+            if (!trusted()) return;
+            runOnUiThread(new Runnable() { @Override public void run() { Updater.start(MainActivity.this); } });
+        }
 
         @JavascriptInterface public void stopScreen() {
             if (!trusted()) return;

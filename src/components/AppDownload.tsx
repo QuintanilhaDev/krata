@@ -13,9 +13,9 @@ export function AppDownload({ variant = 'card' }: { variant?: 'card' | 'login' }
         <span className="app-download-icon"><Smartphone size={22} /></span>
         <span className="app-download-text">
           <strong>Você já está no app (versão {installed || '?'})</strong>
-          <span>As novidades do site chegam sozinhas. {installed && installed !== APP_VERSION ? `Tem a versão ${APP_VERSION} do app para baixar.` : 'Seu app está em dia.'}</span>
+          <span>{window.KrataNative?.updateInfo ? 'As novidades do site chegam sozinhas, e as do app aparecem aqui com um botão de atualizar.' : `As novidades do site chegam sozinhas. ${installed && installed !== APP_VERSION ? `Tem a versão ${APP_VERSION} do app para baixar.` : 'Seu app está em dia.'}`}</span>
         </span>
-        {installed && installed !== APP_VERSION && <a className="btn primary small" href={APK_URL} download="Krata.apk"><Download size={16} /> Atualizar</a>}
+        {installed && installed !== APP_VERSION && !window.KrataNative?.updateInfo && <a className="btn primary small" href={APK_URL} download="Krata.apk"><Download size={16} /> Atualizar</a>}
       </div>
     )
   }

@@ -32,4 +32,11 @@ cp build/base.apk build/unsigned.apk
 (cd build && zip -q -X unsigned.apk classes.dex)
 echo "• assinatura"
 SIGNER="$TOOLS/node_modules/apk_sign_ts/dist/index.js" node sign.mjs build/unsigned.apk "$OUT" "$KEYS/krata-key.pem" "$KEYS/krata-cert.pem"
+# o app confere este arquivo para saber se tem versão nova
+NOTES=$(head -n 1 NOVIDADES.txt 2>/dev/null | tr -d '"\\' || true)
+SIZE=$(stat -c %s "$OUT")
+SHA=$(sha256sum "$OUT" | cut -d' ' -f1)
+cat > "$(dirname "$OUT")/krata-version.json" <<JSON
+{ "versionCode": $VERSION_CODE, "versionName": "$VERSION_NAME", "notes": "$NOTES", "url": "krata.apk", "size": $SIZE, "sha256": "$SHA" }
+JSON
 echo "pronto: $OUT ($VERSION_NAME)"

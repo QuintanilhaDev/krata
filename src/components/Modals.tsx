@@ -19,6 +19,7 @@ import { Avatar, ErrorBoundary, Field, Modal, STATUS_LABEL, Spinner, Tilt } from
 import { PasswordInput, Strength, passwordError } from './Auth'
 import { motionLevel, setMotion } from '../lib/motion'
 import { AppDownload, AppInstallSteps, AppNotificationSettings } from './AppDownload'
+import { UpdateRow } from './AppUpdate'
 import { PrismaSettings } from './Prisma'
 import { ScreenShareModal } from './Voice'
 
@@ -406,7 +407,7 @@ function Settings({ tab: initialTab }: Of<'settings'>) {
           </div>
         )}
         {tab === 'prisma' && <PrismaSettings />}
-        {tab === 'app' && <div className="app-tab"><AppDownload /><AppNotificationSettings /><AppInstallSteps /></div>}
+        {tab === 'app' && <div className="app-tab"><AppDownload /><UpdateRow /><AppNotificationSettings /><AppInstallSteps /></div>}
         {tab === 'voz' && (
           <>
             <Field label="Microfone">

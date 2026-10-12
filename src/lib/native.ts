@@ -23,11 +23,15 @@ export interface KrataNativeBridge {
   setScreenMode?(mode: 'video' | 'jpeg'): void
   screenMode?(): string
   screenCodec?(): string
+  // atualização dentro do app (1.3+)
+  updateInfo?(): string
+  checkUpdate?(): void
+  installUpdate?(): void
 }
 declare global { interface Window { KrataNative?: KrataNativeBridge } }
 
 export const APK_URL = '/krata.apk'
-export const APP_VERSION = '1.2.0'
+export const APP_VERSION = '1.3.0'
 export const isApp = () => typeof window !== 'undefined' && (!!window.KrataNative || /KrataApp\//.test(navigator.userAgent))
 export const isAndroid = () => typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent)
 export const isIOSDevice = () => typeof navigator !== 'undefined' && (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1))
