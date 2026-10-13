@@ -51,7 +51,7 @@ import java.util.Map;
 public class MainActivity extends Activity {
     static final String APP_URL = "https://krata-henna.vercel.app/";
     static final String APP_HOST = Uri.parse(APP_URL).getHost();
-    static final String VERSION = "1.5.1";
+    static final String VERSION = "1.5.2";
     static volatile boolean visible = false;
 
     private static final int REQ_SCREEN = 41;
@@ -320,7 +320,7 @@ public class MainActivity extends Activity {
                 o.put("lastTry", Inbox.prefs(MainActivity.this).getLong("last_try", 0));
                 o.put("lastError", Inbox.prefs(MainActivity.this).getString("last_error", ""));
                 o.put("configured", Inbox.configured(MainActivity.this));
-                o.put("service", SyncService.alive);
+                o.put("service", true);
                 o.put("live", Inbox.liveSync(MainActivity.this));
                 return o.toString();
             } catch (Throwable t) { return "{}"; }
@@ -393,7 +393,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void setLiveSync(boolean on) {
             if (!trusted()) return;
             Inbox.setLiveSync(MainActivity.this, on);
-            if (on) SyncService.start(MainActivity.this); else SyncService.stop(MainActivity.this);
+            SyncService.cleanup(MainActivity.this);
             SyncAlarm.schedule(MainActivity.this, SyncAlarm.interval(MainActivity.this));
         }
 

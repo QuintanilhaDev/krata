@@ -43,10 +43,12 @@ public class SyncAlarm extends BroadcastReceiver {
         if (am != null) am.cancel(pi(c, PendingIntent.FLAG_UPDATE_CURRENT));
     }
 
-    /** Intervalo do despertador (com a tela acesa a conexão contínua já confere a cada 8 s). */
+    /** Intervalo do despertador. */
     static long interval(Context c) {
-        // com a conexão contínua desligada, confere a cada 5 minutos
-        return Inbox.liveSync(c) ? 30_000L : 5 * 60_000L;
+        // tela acesa: a cada 15 s; apagada: a cada 30 s (bateria). "Na hora" desligado: a cada 5 min
+        if (!Inbox.liveSync(c)) return 5 * 60_000L;
+        PowerManager pm = c.getSystemService(PowerManager.class);
+        return pm != null && pm.isInteractive() ? 15_000L : 30_000L;
     }
 
     @Override
@@ -63,7 +65,7 @@ public class SyncAlarm extends BroadcastReceiver {
                     if (!MainActivity.visible) ok = Inbox.sync(c);
                     if (ok && Inbox.configured(c)) {
                         schedule(c, interval(c));
-                        SyncService.start(c); // a conexão contínua volta se o sistema tinha fechado
+
                     }
                 } catch (Throwable ignored) {
                     schedule(c, 60_000L);

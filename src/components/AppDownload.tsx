@@ -89,7 +89,7 @@ export function AppNotificationSettings() {
         {result && <p className="notify-health-result">{result}</p>}
       </div>
       <label className="switch-row">
-        <span><strong>Receber na hora, mesmo com o app fechado</strong><span className="muted">Confere as mensagens a cada poucos segundos em segundo plano (aparece um ícone discreto na barra). Desligado, elas chegam com alguns minutos de atraso.</span></span>
+        <span><strong>Receber na hora, mesmo com o app fechado</strong><span className="muted">Confere as mensagens a cada poucos segundos em segundo plano, sem aviso fixo na barra. Desligado, elas chegam com alguns minutos de atraso (gasta menos bateria).</span></span>
         <input type="checkbox" className="switch" checked={live} onChange={(e) => { setLive(e.target.checked); try { localStorage.setItem('krata-live-sync', e.target.checked ? 'on' : 'off') } catch { /* sem armazenamento */ } n.setLiveSync?.(e.target.checked) }} />
       </label>
       <p className="fine">Celular Xiaomi, Samsung ou Motorola? Além da bateria, procure o Krata em Configurações → Apps e ligue "Inicialização automática" (ou desligue "Colocar app em suspensão").</p>

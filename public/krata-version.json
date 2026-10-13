@@ -1,1 +1,1 @@
-{ "versionCode": 7, "versionName": "1.5.1", "notes": "Notificações em segundo plano consertadas, diagnóstico das notificações nas configurações e layout do celular sem botões por cima de outros.", "url": "krata.apk", "size": 187595, "sha256": "1e0b65e5b3a92a60c634c3aa03f7d3a997ed8bcd62c420125f8090e6f00e0eb9" }
+{ "versionCode": 8, "versionName": "1.5.2", "notes": "Sem o aviso fixo Krata conectado na barra: as mensagens continuam chegando do mesmo jeito.", "url": "krata.apk", "size": 186401, "sha256": "3faed3caedaa337d2d9c43de43cc20a18c4c94d283f2071ca0252711d8a38eb9" }
