@@ -1145,3 +1145,16 @@ html, body { overscroll-behavior: none; }
 .gem-spin.css { animation: gem-css-spin var(--spin-dur, 14s) linear infinite; }
 @keyframes gem-css-spin { from { transform: rotateX(-14deg) rotateY(0deg); } to { transform: rotateX(-14deg) rotateY(360deg); } }
 :root[data-motion='reduced'] .gem-spin.css { animation-duration: calc(var(--spin-dur, 14s) * 2.6); }
+/* cartão de convite dentro das mensagens */
+.invite-card { margin-top: 6px; max-width: 380px; padding: 12px 14px; border-radius: 14px; background: linear-gradient(150deg, rgba(20, 44, 35, 0.9), var(--onyx-1, #0b0e0d)); border: 1px solid rgba(61, 219, 164, 0.25); display: grid; gap: 8px; }
+.invite-card-label { font-size: 11.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3); }
+.invite-card-row { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.invite-card-text { display: grid; min-width: 0; flex: 1; }
+.invite-card-text strong { color: var(--white); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.invite-card-text .muted { font-size: 13px; }
+.invite-card.loading, .invite-card.dead { display: flex; align-items: center; gap: 10px; font-size: 13.5px; }
+.invite-card-face { width: 32px; height: 32px; border-radius: 10px; background: var(--onyx-4); }
+.invite-friends { display: grid; gap: 8px; margin-top: 8px; }
+.invite-friends-list { display: grid; gap: 2px; max-height: 260px; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+.invite-friend { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 10px; min-width: 0; }
+.invite-friend:hover { background: var(--onyx-3); }

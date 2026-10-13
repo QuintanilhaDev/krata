@@ -8,7 +8,7 @@ import { stamp } from '../lib/time'
 import type { Message, Profile } from '../lib/types'
 import { MAX_AVATAR_BYTES, uploadFile } from '../lib/upload'
 import {
-  addEmoji, createGroup, createServer, deleteChannel, deleteServer, fetchPins, inviteCodeFrom, invitePreview, joinServer, kickMember,
+  addEmoji, createGroup, createServer, deleteChannel, deleteServer, fetchPins, inviteCodeFrom, invitePreview, inviteToServer, joinServer, kickMember,
   loadMembers, navigate, openDm, regenerateInvite, removeEmoji, removeFriend, saveChannel, searchMessages, sendFriendRequest,
   setMemberRole, signOut, transferServer, updateProfile, updateServer,
 } from '../store/actions'
@@ -140,8 +140,46 @@ function Invite({ serverId }: Of<'invite'>) {
           <input className="input" readOnly value={link} aria-label="Link do convite" onFocus={(e) => e.target.select()} />
           <button className="btn primary" autoFocus onClick={() => void copy(link, 'Link copiado')}><Copy size={16} /> Copiar</button>
         </div>
+        <InviteFriends serverId={server.id} />
       </div>
     </Modal>
+  )
+}
+
+/** Amigos que ainda não estão no servidor: um toque manda o convite no privado. */
+function InviteFriends({ serverId }: { serverId: string }) {
+  const state = useDirectory()
+  const [sent, setSent] = useState<Record<string, 'busy' | 'sent' | 'blocked' | 'error'>>({})
+  const [q, setQ] = useState('')
+  useEffect(() => { if (!state.members[serverId]) void loadMembers(serverId) }, [serverId, state.members])
+  const inServer = new Set((state.members[serverId] || []).map((m) => m.user_id))
+  const list = friendIds(state).map((id) => state.profiles[id]).filter((p): p is Profile => !!p && !inServer.has(p.id))
+    .filter((p) => !q || `${p.display_name} ${p.username}`.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => a.display_name.localeCompare(b.display_name, 'pt-BR'))
+  if (!friendIds(state).length) return null
+  return (
+    <div className="invite-friends">
+      <p className="side-label"><span>Convidar amigos</span></p>
+      <input className="input" placeholder="Buscar amigo" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar amigo para convidar" />
+      <div className="invite-friends-list">
+        {list.length === 0 && <p className="muted">Todos os teus amigos já estão aqui.</p>}
+        {list.map((p) => {
+          const st = sent[p.id]
+          return (
+            <div key={p.id} className="invite-friend">
+              <Avatar profile={p} size={34} status={presenceOf(state, p.id)} />
+              <span className="grow two-line"><strong>{p.display_name}</strong><span className="muted">@{p.username}</span></span>
+              <button className={`btn small ${st === 'sent' ? 'ghost' : 'primary'}`} disabled={!!st && st !== 'error'} onClick={async () => {
+                setSent((x) => ({ ...x, [p.id]: 'busy' }))
+                const r = await inviteToServer(serverId, p.id)
+                setSent((x) => ({ ...x, [p.id]: r === 'member' ? 'sent' : r }))
+                if (r === 'blocked') toast(`Não deu para mandar para ${p.display_name}.`, 'error')
+              }}>{st === 'sent' ? <><Check size={15} /> Enviado</> : st === 'busy' ? 'Enviando…' : st === 'blocked' ? 'Indisponível' : 'Convidar'}</button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 

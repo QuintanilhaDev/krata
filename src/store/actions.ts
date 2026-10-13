@@ -562,17 +562,41 @@ export async function removeFriend(id: string) {
   if (error) return toast(errorText(error), 'error')
   set((s) => ({ friends: s.friends.filter((f) => f.id !== id) }))
 }
-export async function openDm(userId: string) {
+/** Id da conversa privada com alguém (cria se ainda não existe), sem sair da tela atual. */
+export async function dmWith(userId: string, quiet = false): Promise<string | null> {
   const s = get()
   const key = [s.userId, userId].sort().join(':')
-  let id = s.channels.find((c) => c.dm_key === key)?.id ?? null
-  if (!id) {
-    id = await rpc<string>('open_dm', { p_other: userId })
-    if (!id) return
-    await loadStructure()
-  }
+  const known = s.channels.find((c) => c.dm_key === key)?.id
+  if (known) return known
+  let id: string | null = null
+  if (quiet) {
+    const { data, error } = await supabase.rpc('open_dm', { p_other: userId })
+    if (error || !data) return null
+    id = data as string
+  } else id = await rpc<string>('open_dm', { p_other: userId })
+  if (!id) return null
+  await loadStructure()
+  return id
+}
+export async function openDm(userId: string) {
+  const id = await dmWith(userId)
+  if (!id) return
   set({ modal: null })
   navigate({ serverId: null, channelId: id })
+}
+
+export const inviteUrl = (code: string) => `${location.origin}${location.pathname}#/invite/${code}`
+export type InviteResult = 'sent' | 'member' | 'blocked' | 'error'
+/** Manda o convite do servidor no privado da pessoa (aparece como cartão com botão de entrar). */
+export async function inviteToServer(serverId: string, userId: string): Promise<InviteResult> {
+  const server = get().servers.find((x) => x.id === serverId)
+  if (!server) return 'error'
+  if (!get().members[serverId]) await loadMembers(serverId)
+  if (get().members[serverId]?.some((m) => m.user_id === userId)) return 'member'
+  const ch = await dmWith(userId, true)
+  if (!ch) return 'blocked'
+  const ok = await sendMessage(ch, `Bora pro **${server.name}**? Entra por aqui: ${inviteUrl(server.invite_code)}`)
+  return ok ? 'sent' : 'error'
 }
 export async function createGroup(userIds: string[], name: string) {
   const id = await rpc<string>('create_group_dm', { p_users: userIds, p_name: name })

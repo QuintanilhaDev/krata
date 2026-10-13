@@ -6,13 +6,13 @@ import { setMotion } from '../lib/motion'
 import { supabase } from '../lib/supabase'
 import type { Channel, Message, Profile } from '../lib/types'
 import {
-  acceptFriend, byPosition, createGroup, createServer, deleteChannel, deleteMessage, deleteServer, editMessage, joinServer, kickMember, leaveServer,
+  acceptFriend, byPosition, createGroup, createServer, deleteChannel, deleteMessage, deleteServer, editMessage, inviteToServer, joinServer, kickMember, leaveServer,
   loadMembers, navigate, openDm, regenerateInvite, removeFriend, saveChannel, sendFriendRequest, sendMessage, setMemberRole, setPinned, signOut,
   toggleReaction, updateProfile, updateServer, usernameAvailable,
 } from '../store/actions'
 import { channelTitle, friendIds, get, openModal, presenceOf, set as setApp, toast } from '../store/app'
 import { canShareScreen, joinVoice, leaveVoice, stopScreen, toggleCamera, toggleDeafen, toggleMute, useVoice } from '../voice/engine'
-import { Brain, extractSlots, findEntity, type Slots, type World } from './brain'
+import { Brain, extractSlots, findEntity, fold, type Slots, type World } from './brain'
 import { INTENTS, type Intent } from './dataset'
 import { celebrate, goHome, shake, showOff, visit } from './fairy'
 import { STATUS_LABEL, say, welcome, type Who } from './persona'
@@ -23,6 +23,8 @@ const brain = new Brain()
 let training: Promise<void> | null = null
 let queue: Promise<unknown> = Promise.resolve()
 let lastSaid = ''
+/** Quando a Prisma foi chamada num canal, o que ela fala também vai escrito lá. */
+let capture: string[] | null = null
 type Pending =
   | { kind: 'slot'; intent: Intent; slots: Slots; need: 'name' | 'text' | 'user'; raw: string }
   | { kind: 'confirm'; run: () => Promise<string>; learn?: { text: string; intent: Intent } }
@@ -111,6 +113,7 @@ function remember(text: string, intent: Intent) {
 // ------------------------------------------------------------------ fala
 async function respond(text: string, origin: 'voice' | 'text') {
   if (!text) return
+  capture?.push(text)
   lastSaid = text
   pushChat('assistant', text)
   if (pget().captions || origin === 'text') pset({ bubble: text })
@@ -158,6 +161,18 @@ export function handle(text: string, origin: 'voice' | 'text' = 'text'): Promise
   queue = run
   return run
 }
+/** Executa um pedido e devolve tudo o que ela respondeu (para escrever no canal). */
+function handleCaptured(text: string): Promise<string> {
+  const run = queue.then(async () => {
+    capture = []
+    try { await handleNow(text.trim(), 'text') } catch (e) { console.error('[prisma]', e); shake(); await respond(say.netError(), 'text') }
+    const out = capture.join(' ').trim()
+    capture = null
+    return out
+  })
+  queue = run.catch(() => {})
+  return run
+}
 
 async function handleNow(text: string, origin: 'voice' | 'text') {
   if (!text) return
@@ -195,7 +210,11 @@ async function handleNow(text: string, origin: 'voice' | 'text') {
       }
     }
 
-    // 2) cérebro local
+    // 2) pedidos inconfundíveis vão direto (nomes desconhecidos às vezes confundem o cérebro)
+    const rule = ruleIntent(text)
+    if (rule) return void (await respond(await act(rule, extractSlots(rule, text, world()), text), origin))
+
+    // 3) cérebro local
     const r = brain.classify(text)
     const strong = r.source === 'memory' || (r.confidence >= 0.45 && r.margin >= 0.15)
     const cloud = pget().server?.groq
@@ -221,8 +240,8 @@ async function handleNow(text: string, origin: 'voice' | 'text') {
         if (phrase) results.push(phrase)
       }
       if (out.actions.length === 1) remember(text, String(out.actions[0].type) as Intent)
-      if (results.length && !out.say) await respond(results.join(' '), origin)
-      else if (results.length && results.some((x) => x.startsWith('!'))) await respond(results.filter((x) => x.startsWith('!')).map((x) => x.slice(1)).join(' '), origin)
+      // com a fala da IA, sucesso fica quieto (""), mas erros ("!..."), perguntas e respostas (quem tá on, não lidas…) sempre aparecem
+      if (results.length) await respond(results.map((x) => (x.startsWith('!') ? x.slice(1) : x)).join(' '), origin)
       return
     }
 
@@ -236,6 +255,17 @@ async function handleNow(text: string, origin: 'voice' | 'text') {
   } finally {
     if (pget().mood === 'thinking') pset({ mood: 'idle' })
   }
+}
+
+/** Regras para pedidos que não podem falhar por causa de nomes estranhos ("convida ely, sirkaiju…"). */
+export function ruleIntent(text: string): Intent | null {
+  const f = fold(text).replace(/\bpri[sz]ma\b[,:]?/g, ' ')
+  if (/\b(link|codigo|regenera|novo convite|outro convite)\b/.test(f)) return null
+  if (/\bconvid(a|e|ar|em)\b/.test(f)) return 'invite_users'
+  if (/\b(manda|envia|mande|envie)(r)?\s+(o |um )?convite\s+(do servidor |do server )?(pro|pra|para|ao|a|pros|pras)\b/.test(f)) return 'invite_users'
+  if (/\b(canal|emoji|cargo|icone|foto|sala|chamad|se chama|chama de|nome)\b/.test(f)) return null
+  if (/\b(chama|traz|traga|bota|coloca|adiciona|add)\s+(o |a |os |as )?@?[a-z0-9_.]{2,}.*\b(pro|pra|para o|para|no|na|nesse|neste|ao|aqui no)\s+((esse|este|o|meu|nosso)\s+)?(servidor|server)\b/.test(f)) return 'invite_users'
+  return null
 }
 
 /** O pedido local veio sem o dado que a ação precisa? */
@@ -287,7 +317,13 @@ function slotsFromCloud(a: Record<string, unknown>): Slots {
     return w.users.find((x) => x.username === u) || w.users.find((x) => x.display.toLowerCase() === u) || findEntity(v, w.users, (x) => [x.display, x.username], 0.86)?.item
   }
   if (str('user')) { const hit = findUser(str('user')); if (hit) s.userId = hit.id; else s.username = str('user').replace(/^@/, '').toLowerCase() }
-  if (Array.isArray(a.users)) s.userIds = (a.users as unknown[]).map((v) => findUser(String(v))?.id).filter((x): x is string => !!x)
+  if (Array.isArray(a.users)) {
+    const list = (a.users as unknown[]).map((v) => String(v).trim()).filter(Boolean).slice(0, 10)
+    s.userIds = list.map((v) => findUser(v)?.id).filter((x): x is string => !!x)
+    // quem não está no contexto (ainda não é amigo) a gente procura pelo @ ou pelo nome
+    const rest = list.filter((v) => !findUser(v)).map((v) => v.replace(/^@/, '').toLowerCase().replace(/\s+/g, ''))
+    if (rest.length) s.usernames = rest
+  }
   if (['online', 'idle', 'dnd', 'invisible'].includes(str('status'))) s.status = str('status') as Slots['status']
   if (/^#[0-9a-f]{6}$/i.test(str('color'))) s.color = str('color')
   if (str('emoji')) s.emoji = str('emoji')
@@ -333,7 +369,37 @@ async function resolveUsername(slots: Slots): Promise<string | null> {
   for (const v of variants) { const free = await usernameAvailable(v); if (free === false) return v }
   return variants[0] || null
 }
-const nameOf = (id?: string) => (id ? get().profiles[id]?.display_name : '') || 'essa pessoa'
+const seenNames = new Map<string, string>()
+const nameOf = (id?: string) => (id ? get().profiles[id]?.display_name || seenNames.get(id) : '') || 'essa pessoa'
+const listNames = (names: string[]) => (names.length <= 1 ? names[0] || '' : `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}`)
+
+/** Acha pessoas pelo @usuário ou pelo nome de exibição (amigos primeiro). */
+async function findPeople(names: string[]): Promise<{ found: string[]; missing: string[]; ambiguous: string[] }> {
+  const found: string[] = [], missing: string[] = [], ambiguous: string[] = []
+  const s = get()
+  const friends = new Set(friendIds(s))
+  const known = Object.values(s.profiles)
+  for (const raw of names.slice(0, 10)) {
+    const n = raw.toLowerCase().replace(/^@/, '')
+    if (!/^[a-z0-9_.]{2,20}$/.test(n)) { missing.push(raw); continue }
+    const local = known.filter((p) => p.username === n).concat(known.filter((p) => p.username !== n && p.display_name.toLowerCase().replace(/\s+/g, '') === n))
+    let pick = local.find((p) => p.username === n) || local.find((p) => friends.has(p.id))
+    if (!pick) {
+      const { data } = await supabase.from('profiles').select('id,username,display_name').or(`username.eq.${n},display_name.ilike.${n}`).limit(5)
+      const rows = (data as Pick<Profile, 'id' | 'username' | 'display_name'>[] | null) || []
+      const exact = rows.find((r) => r.username === n)
+      const byName = rows.filter((r) => r.username !== n)
+      const chosen = exact || byName.find((r) => friends.has(r.id)) || (byName.length === 1 ? byName[0] : undefined)
+      if (chosen) {
+        seenNames.set(chosen.id, chosen.display_name)
+        pick = chosen as Profile
+      } else if (byName.length > 1) { ambiguous.push(raw); continue }
+    }
+    if (pick) found.push(pick.id)
+    else missing.push(raw)
+  }
+  return { found, missing, ambiguous }
+}
 
 /**
  * Executa um pedido. Devolve a frase que ela fala.
@@ -409,6 +475,35 @@ export async function act(intent: Intent, slots: Slots, raw: string, opts: { qui
       let copied = false
       await visit(sel('server-menu'), async () => { try { await navigator.clipboard.writeText(url); copied = true } catch { /* sem permissão */ } pset({ panel: { kind: 'link', title: `Convite de ${server.name}`, url } }) })
       return done(copied ? say.inviteCopied() : say.inviteShown())
+    }
+    case 'invite_users': {
+      if (!server) return fail(say.needServer())
+      const ids = [...(slots.userIds || []), ...(slots.userId ? [slots.userId] : [])]
+      const names = [...(slots.usernames || []), ...(slots.username ? [slots.username] : [])]
+      if (!ids.length && !names.length) {
+        await visit(sel('server-menu'), async () => openModal({ type: 'invite', serverId: server.id }))
+        return done('Escolhe aqui quem você quer chamar pro servidor.')
+      }
+      const { found, missing, ambiguous } = await findPeople(names)
+      const targets = [...new Set([...ids, ...found])].filter((id) => id !== s.userId)
+      const sent: string[] = [], already: string[] = [], blocked: string[] = [], failed: string[] = []
+      await visit(sel('server-menu'), async () => {
+        for (const id of targets) {
+          const r = await inviteToServer(server.id, id)
+          ;(r === 'sent' ? sent : r === 'member' ? already : r === 'blocked' ? blocked : failed).push(nameOf(id))
+        }
+      })
+      const parts: string[] = []
+      if (sent.length) parts.push(say.invitesSent(server.name, sent))
+      if (already.length) parts.push(`${listNames(already)} já ${already.length > 1 ? 'estão' : 'está'} no servidor.`)
+      if (blocked.length) parts.push(`Não consegui mandar pra ${listNames(blocked)}: vocês precisam ser amigos ou dividir um servidor. Se quiser, mando um pedido de amizade.`)
+      if (failed.length) parts.push(`Deu erro ao mandar pra ${listNames(failed)}.`)
+      if (missing.length) parts.push(`Não achei ninguém chamado ${listNames(missing.map((n) => `@${n}`))}.`)
+      if (ambiguous.length) parts.push(`Tem mais de uma pessoa com o nome ${listNames(ambiguous)}: me fala o @ certinho.`)
+      if (sent.length) celebrate()
+      const text = parts.join(' ') || say.notUnderstood()
+      // deu tudo certo e a IA já falou: fica quieta; se algo falhou, avisa sempre
+      return sent.length && !already.length && !blocked.length && !failed.length && !missing.length && !ambiguous.length ? done(text) : fail(text)
     }
     case 'regenerate_invite': {
       if (!server || !isAdminOf(server.id)) return fail(server ? say.noPermission() : say.needServer())
@@ -685,21 +780,35 @@ async function summarize(): Promise<string> {
   return d.say || say.netError()
 }
 
-/** Alguém escreveu @prisma num canal de servidor. Comandos ela executa; perguntas ela responde no canal. */
+async function postToChannel(channelId: string, text: string) {
+  if (!text) return
+  const { data } = await supabase.auth.getSession()
+  const r = await fetch('/api/prisma', {
+    method: 'POST', headers: { authorization: `Bearer ${data.session?.access_token || ''}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ mode: 'post', channelId, text }),
+  }).catch(() => null)
+  if (!r?.ok) { pset({ bubble: text }); pushChat('assistant', text) }
+}
+
+/** Alguém escreveu @prisma num canal de servidor. Pedidos ela executa de verdade e escreve no canal o
+ *  resultado real; perguntas ela responde no canal. Nunca diz que fez algo que não fez. */
 export async function channelMention(channelId: string, content: string) {
   const text = content.replace(/(^|\s)@prisma\b[,:]?/gi, ' ').trim()
   if (!text) return
   if (training) await training
+  const st = pget().server
+  const bot = !!st?.channelBot
   const r = brain.classify(text)
   const talk = ['chat', 'greet', 'thanks', 'how_are_you', 'who_are_you', 'help', 'time_now'].includes(r.intent)
-  // pedido de ação (criar canal, mutar, adicionar alguém…): ela executa na hora
-  if (!talk && (r.source === 'memory' || (r.confidence >= 0.4 && r.margin >= 0.12))) {
-    await handle(text, 'text')
+  const local = !!ruleIntent(text) || (!talk && (r.source === 'memory' || (r.confidence >= 0.4 && r.margin >= 0.12)))
+  // pedido que o cérebro local entende, ou sem IA na nuvem/sem chave do canal: fluxo normal, resposta real no canal
+  if (local || !st?.groq || !bot) {
+    if (!bot) pset({ chatOpen: true })
+    const said = await handleCaptured(text)
+    if (bot) await postToChannel(channelId, said)
     if (pending) pset({ chatOpen: true }) // ela perguntou algo (ex.: o nome do canal): abre o chat dela para responder
     return
   }
-  // sem a chave de serviço ela não consegue escrever no canal: responde no chat dela mesmo
-  if (!pget().server?.channelBot) { pset({ chatOpen: true }); void handle(text, 'text'); return }
   const s = get()
   const history = (s.messages[channelId]?.items || []).slice(-25).map((m) => `${m.bot ? 'Prisma' : s.profiles[m.author_id]?.display_name || 'alguém'}: ${(m.content || '[anexo]').slice(0, 300)}`).join('\n')
   pset({ mood: 'thinking' })
@@ -707,10 +816,22 @@ export async function channelMention(channelId: string, content: string) {
     const { data } = await supabase.auth.getSession()
     const res = await fetch('/api/prisma', {
       method: 'POST', headers: { authorization: `Bearer ${data.session?.access_token || ''}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: 'channel', channelId, text, context: `${me().display_name} (@${me().username})`, messages: history }),
+      body: JSON.stringify({ mode: 'channel', channelId, text, asker: `${me().display_name} (@${me().username})`, context: contextText(), messages: history }),
     })
-    if (res.status === 429) toast(say.limit(), 'error')
-    else if (!res.ok) toast('A Prisma não conseguiu responder no canal agora.', 'error')
+    if (res.status === 429) return toast(say.limit(), 'error')
+    if (!res.ok) return toast('A Prisma não conseguiu responder no canal agora.', 'error')
+    const d = (await res.json().catch(() => ({}))) as { say?: string; actions?: Record<string, unknown>[]; posted?: boolean }
+    const actions = Array.isArray(d.actions) ? d.actions : []
+    if (!actions.length) return // a conversa já foi escrita no canal pelo servidor
+    // executa de verdade e escreve o resultado real (não o que a IA "achou" que ia acontecer)
+    const results = await queue.then(async () => {
+      const out: string[] = []
+      for (const a of actions) out.push(await act(String(a.type) as Intent, slotsFromCloud(a), text))
+      return out.filter(Boolean)
+    })
+    if (actions.length === 1) remember(text, String(actions[0].type) as Intent)
+    await postToChannel(channelId, results.join(' ') || d.say || '')
+    if (pending) pset({ chatOpen: true })
   } finally { if (pget().mood === 'thinking') pset({ mood: 'idle' }) }
 }
 
@@ -725,7 +846,7 @@ export function panelDone(text: string) {
 export const EXAMPLES = [
   'Prisma, cria um servidor chamado Tropa', 'Prisma, quero usar uma foto de perfil nova', 'Prisma, manda "bora jogar" no geral', 'Prisma, adiciona o @beto',
   'Prisma, entra na call', 'Prisma, compartilha minha tela em 4K', 'Prisma, me muta', 'Prisma, me coloca no não perturbe', 'Prisma, resume o chat',
-  'Prisma, quem tá on?', 'Prisma, liga pra Ana', 'Prisma, cria um canal de voz chamado Squad', 'Prisma, me dá o link de convite', 'Prisma, troca meu banner',
+  'Prisma, quem tá on?', 'Prisma, liga pra Ana', 'Prisma, cria um canal de voz chamado Squad', 'Prisma, me dá o link de convite', 'Prisma, convida a Ana e o Beto pro servidor', 'Prisma, troca meu banner',
 ]
 
 export { brain }

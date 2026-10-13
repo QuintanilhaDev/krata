@@ -24,7 +24,7 @@ export const say = {
   thanks: () => pick(['Tmj!', 'De nada, é nóis.', 'Disponha! Qualquer coisa só chamar.', 'Imagina, W pedido.']),
   howAreYou: (w: Who) => pick([`Tô de boa e cheia de energia, ${first(w)}. E tu?`, 'De boa demais! Pronta pra rushar o que você pedir.', 'Suave na nave. Bora fazer alguma coisa?']),
   whoAmI: () => pick(['Sou a Prisma, a assistente do Krata. Crio servidor, mando mensagem, troco tua foto, entro na call… é só pedir começando com "Prisma".', 'Prisma, prazer! Eu cuido do Krata pra você: é só falar "Prisma" e pedir.']),
-  help: () => 'Posso criar e apagar servidores e canais, mandar mensagens, adicionar amigos, trocar tua foto, nome e status, entrar na call, mutar, compartilhar a tela em 4K, resumir o chat e trocar ideia sobre qualquer coisa. É só falar "Prisma" e pedir.',
+  help: () => 'Posso criar e apagar servidores e canais, mandar mensagens, adicionar amigos, convidar a galera pro servidor, trocar tua foto, nome e status, entrar na call, mutar, compartilhar a tela em 4K, resumir o chat e trocar ideia sobre qualquer coisa. É só falar "Prisma" e pedir.',
   time: () => {
     const d = new Date()
     const hora = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' }).format(d)
@@ -48,6 +48,7 @@ export const say = {
   confirmDelete: (n: string) => `Certeza que quer apagar ${n}? Não dá pra desfazer.`,
   askChannelName: () => 'Qual o nome do canal?',
   channelCreated: (n: string, voice: boolean) => `Canal ${voice ? 'de voz ' : ''}${n} criado!`,
+  invitesSent: (server: string, names: string[]) => `Prontinho, mandei o convite do ${server} no privado ${names.length > 1 ? 'de' : 'de'} ${names.length <= 1 ? names[0] : `${names.slice(0, -1).join(', ')} e ${names[names.length - 1]}`}. É só clicar em Entrar.`,
   inviteCopied: () => 'Copiei o link do convite. É só colar pra galera.',
   inviteShown: () => 'Tá aqui o link do convite.',
   opened: (n: string) => pick([`Abrindo ${n}.`, `Bora pro ${n}.`, `Tô te levando pro ${n}.`]),

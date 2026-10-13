@@ -287,7 +287,7 @@ export function findEntity<T>(text: string, list: T[], names: (x: T) => string[]
 
 export interface Slots {
   name?: string; text?: string; code?: string; username?: string
-  serverId?: string; channelId?: string; userId?: string; userIds?: string[]
+  serverId?: string; channelId?: string; userId?: string; userIds?: string[]; usernames?: string[]
   status?: 'online' | 'idle' | 'dnd' | 'invisible'; color?: string; emoji?: string; kind?: 'text' | 'voice'
   quality?: '2160' | '1440' | '1080' | '720' | 'source'; tab?: string; level?: 'full' | 'reduced'
 }
@@ -406,6 +406,20 @@ export function extractSlots(intent: Intent, rawInput: string, world: World): Sl
       if (n) s.name = n
       break
     }
+    case 'invite_users': {
+      // pessoas conhecidas (amigos, conversas) pelo nome; o resto vira @usuário para procurar
+      const ids: string[] = []
+      let rest = raw
+      for (let i = 0; i < 9; i++) {
+        const hit = findEntity(rest, world.users.filter((u) => !ids.includes(u.id)), personNames, 0.88)
+        if (!hit) break
+        ids.push(hit.item.id); rest = cutTokens(rest, hit.start, hit.end)
+      }
+      if (ids.length) s.userIds = ids
+      const names = inviteNames(rest, world)
+      if (names.length) s.usernames = names
+      break
+    }
     case 'set_status': {
       const c = clean(raw)
       s.status = /invisivel|offline|desconectad/.test(c) ? 'invisible' : /nao perturbe|ocupad|dnd|nao incomod/.test(c) ? 'dnd' : /ausente|afk|idle/.test(c) ? 'idle' : 'online'
@@ -442,6 +456,23 @@ export function extractSlots(intent: Intent, rawInput: string, world: World): Sl
     }
   }
   return s
+}
+
+/** Nomes citados num convite: "convida ely, sirkaiju e novacombos pro servidor" → [ely, sirkaiju, novacombos]. */
+export function inviteNames(raw: string, world: World): string[] {
+  let f = fold(raw).replace(/@/g, ' @')
+  const verb = /\b(convida(r|e)?|chama(r)?|traz(er)?|traga|adiciona(r)?|add|coloca(r)?|bota(r)?|manda(r)? (o |um )?convite( do servidor| do server)? (pro|pra|para|ao|a)|envia(r)? (o |um )?convite( do servidor| do server)? (pro|pra|para|ao|a))\b/.exec(f)
+  if (!verb) return []
+  f = f.slice(verb.index + verb[0].length)
+  // corta onde começa o destino ("pro servidor", "nesse server", "aqui"...)
+  f = f.replace(/\b(pro|pra|para o|para|no|na|nesse|neste|desse|deste|ao|aqui|ai|esse|este|o|do|dentro do)\s+((esse|este|o|meu|nosso|teu|seu|aquele)\s+)?(servidor|server|grupo|discord|krata)\b.*$/, ' ')
+  for (const sv of world.servers) f = f.replace(new RegExp(`\\b(pro|pra|para o|para|no|ao)\\s+${fold(sv.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b.*$`), ' ')
+  f = f.replace(/\b(aqui|agora|por favor|pfv|pra mim|tambem|pra entrar|entrar)\b/g, ' ')
+  const stop = /^(meus?|minhas?|amigos?|amigas?|galera|pessoal|todos|todas|todo|mundo|eles|elas|ele|ela|servidor|server|convite|link)$/
+  return [...new Set(f.split(/,|\be\b|\s+\+\s+|;/).map((x) => x.trim().replace(/^((o|a|os|as|ao|pro|pra|para|pros|pras)\s+)+/, '').replace(/^@/, '').trim())
+    .filter((x) => x && !x.split(/\s+/).some((w) => stop.test(w)))
+    .map((x) => x.replace(/\s*(ponto|dot)\s*/g, '.').replace(/\s*(underline|underscore)\s*/g, '_').replace(/\s+/g, ''))
+    .filter((x) => /^[a-z0-9_.]{2,20}$/.test(x)))].slice(0, 10)
 }
 
 /** Converte "beto ponto lima" em "beto.lima", "mari underline 22" em "mari_22". */

@@ -4,7 +4,7 @@
 
 export const INTENTS = [
   'greet', 'thanks', 'help', 'how_are_you', 'who_are_you', 'time_now', 'stop_listening', 'repeat', 'cancel', 'affirm', 'deny', 'chat',
-  'create_server', 'join_server', 'leave_server', 'delete_server', 'rename_server', 'server_icon', 'invite_link', 'regenerate_invite',
+  'create_server', 'join_server', 'leave_server', 'delete_server', 'rename_server', 'server_icon', 'invite_link', 'regenerate_invite', 'invite_users',
   'create_channel', 'delete_channel', 'rename_channel', 'set_topic',
   'open_server', 'open_channel', 'open_dm', 'go_home', 'open_friends', 'open_profile',
   'send_message', 'friend_request', 'accept_friend', 'decline_friend', 'remove_friend', 'online_friends', 'create_group',
@@ -52,6 +52,12 @@ export const SEED: Record<Intent, string[]> = {
   rename_server: ['muda o nome do servidor pra {N}', 'renomeia o servidor', 'troca o nome do server para {N}', 'coloca o nome do servidor de {N}', 'renomear servidor para {N}'],
   server_icon: ['troca o icone do servidor', 'muda a foto do servidor', 'coloca uma imagem no servidor', 'quero mudar o icone do server', 'nova foto pro servidor', 'altera o icone do servidor'],
   invite_link: ['me passa o convite', 'passa o link do convite', 'me manda o convite', 'me da o link de convite', 'copia o convite do servidor', 'qual o convite desse servidor', 'gera um convite', 'quero convidar uma pessoa', 'link pra chamar a galera', 'convite do server', 'manda o link do servidor'],
+  invite_users: [
+    'convida o {U} pro servidor', 'convida o {U} e a {U} para esse servidor', 'chama a {U} pro servidor', 'manda o convite do servidor pro {U}',
+    'adiciona o {U} no servidor', 'coloca a {U} nesse server', 'traz o {U} pro {S}', 'convida {U} pro {S}', 'chama o {U} pra esse servidor',
+    'envia convite pro {U} entrar no servidor', 'convida meus amigos pro servidor', 'convida o pessoal pro server', 'manda convite pra {U} e {U}',
+    'convidar {U} para o servidor', 'bota o {U} aqui no servidor', 'convida a {U}',
+  ],
   regenerate_invite: ['gera outro link de convite', 'faz outro convite', 'muda o link de convite', 'gera um novo link de convite', 'troca o convite', 'cria outro convite e cancela o antigo', 'reseta o link de convite', 'novo convite invalidando o antigo'],
   create_channel: [
     'cria um canal chamado {C}', 'cria um canal de texto {C}', 'novo canal {C}', 'cria um canal de voz chamado {C}', 'faz uma sala de voz', 'cria uma call nova',

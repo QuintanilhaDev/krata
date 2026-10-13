@@ -9,7 +9,7 @@ import { clock, dayLabel, fileSize, sameDay, stamp } from '../lib/time'
 import type { Attachment, Channel, Message, Profile } from '../lib/types'
 import {
   checkFiles, clearStaleTyping, deleteMessage, discardMessage, editMessage, loadMessages, retryMessage, sendMessage, sendTyping,
-  setPinned, toggleReaction,
+  setPinned, toggleReaction, invitePreview, joinServer, navigate,
 } from '../store/actions'
 import { channelTitle, dmPartnerIds, openModal, presenceOf, set, toast, useApp } from '../store/app'
 import { joinVoice, toggleCamera, useVoice } from '../voice/engine'
@@ -170,6 +170,7 @@ const MessageItem = memo(function MessageItem({ m, fresh, compact, author, repli
         ) : (
           <>
             {m.content && <Markdown text={m.content} />}
+            {m.content && inviteCode(m.content) && <InviteCard code={inviteCode(m.content)!} />}
             {m.edited_at && <span className="msg-edited" title={new Date(m.edited_at).toLocaleString('pt-BR')}>(editada)</span>}
           </>
         )}
@@ -213,6 +214,44 @@ const MessageItem = memo(function MessageItem({ m, fresh, compact, author, repli
     </article>
   )
 })
+
+// ============================================================ cartão de convite
+const INVITE_RX = /#\/invite\/([a-z0-9]{6,16})\b/i
+const inviteCode = (text: string) => INVITE_RX.exec(text)?.[1]?.toLowerCase() || null
+type Preview = Awaited<ReturnType<typeof invitePreview>> | null
+const previews = new Map<string, Promise<Preview>>()
+
+/** Link de convite numa mensagem vira um cartão com o servidor e o botão de entrar. */
+function InviteCard({ code }: { code: string }) {
+  const [info, setInfo] = useState<Preview | undefined>(undefined)
+  const [busy, setBusy] = useState(false)
+  const joined = useApp((s) => (info ? s.servers.some((x) => x.id === info.id) : false))
+  useEffect(() => {
+    let alive = true
+    if (!previews.has(code)) previews.set(code, invitePreview(code).catch(() => null))
+    void previews.get(code)!.then((p) => { if (alive) setInfo(p) })
+    return () => { alive = false }
+  }, [code])
+  if (info === undefined) return <div className="invite-card loading"><span className="invite-card-face" /><span className="muted">Carregando convite…</span></div>
+  if (!info) return <div className="invite-card dead"><span className="muted">Convite inválido ou trocado pelo dono do servidor.</span></div>
+  const member = joined || info.already_member
+  return (
+    <div className="invite-card" onClick={(e) => e.stopPropagation()}>
+      <span className="invite-card-label">Convite para um servidor</span>
+      <div className="invite-card-row">
+        <Avatar url={info.icon_url} name={info.name} seed={info.id} size={46} square />
+        <span className="invite-card-text"><strong>{info.name}</strong><span className="muted">{info.member_count} {info.member_count === 1 ? 'membro' : 'membros'}</span></span>
+        <button className="btn primary small" disabled={busy} onClick={async () => {
+          if (member) return navigate({ serverId: info.id, channelId: null })
+          setBusy(true)
+          const ok = await joinServer(code)
+          setBusy(false)
+          if (ok) { previews.delete(code); toast(`Você entrou no ${info.name}!`, 'ok') }
+        }}>{member ? 'Abrir' : busy ? 'Entrando…' : 'Entrar'}</button>
+      </div>
+    </div>
+  )
+}
 
 function FavGifButton({ url }: { url: string }) {
   const { isFav, toggle } = useGifFavorites()
