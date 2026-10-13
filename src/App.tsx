@@ -15,6 +15,8 @@ import { APP_VERSION } from './lib/native'
 import { isConfigured } from './lib/supabase'
 import { boot, navigate } from './store/actions'
 import { registerDevice } from './lib/appNotify'
+import { desktopOn, registerWorker, syncPush } from './lib/push'
+import { NotifyCoach } from './components/NotifyCoach'
 import { closeModal, openModal, set, toast, useApp } from './store/app'
 import { usePrisma } from './prisma/store'
 import { setViewScope, useVoice, voiceDebug } from './voice/engine'
@@ -36,7 +38,12 @@ function Shell() {
   useEffect(() => { document.documentElement.dataset.sharing = sharing ? '1' : '0' }, [sharing])
 
   const meId = useApp((s) => s.me?.id)
-  useEffect(() => { const me = useApp.getState().me; if (me && window.KrataNative) void registerDevice(me) }, [meId])
+  useEffect(() => {
+    const me = useApp.getState().me
+    if (!me) return
+    if (window.KrataNative) void registerDevice(me)
+    else { void registerWorker(); if (desktopOn()) void syncPush(me) }
+  }, [meId])
   const shellRef = useRef<HTMLDivElement>(null)
   useSwipeNav(shellRef)
   useEffect(() => { setViewScope(nav.serverId ?? (channel && !channel.server_id ? channel.id : null)) }, [nav.serverId, channel])
@@ -129,6 +136,15 @@ if (window.KrataNative) {
   navigate({ serverId: serverId || null, channelId })
 }
 
+// clique numa notificação do computador: abre a conversa (e o campo de texto, em "Responder")
+window.addEventListener('krata-open-chat', (e) => {
+  const d = (e as CustomEvent<{ ch: string; sv?: string | null; reply?: boolean }>).detail
+  if (!d?.ch || !useApp.getState().userId) return
+  closeModal()
+  navigate({ serverId: d.sv || null, channelId: d.ch })
+  if (d.reply) setTimeout(() => document.getElementById('composer-input')?.focus(), 400)
+})
+
 // botão "voltar" do Android (app): fecha o que estiver por cima antes de sair do app
 ;(window as unknown as { __krataBack?: () => boolean }).__krataBack = () => {
   const s = useApp.getState()
@@ -187,6 +203,7 @@ export default function App() {
       <IncomingCall />
       <ModalRoot />
       {id === 'app' && <ErrorBoundary><PrismaRoot /></ErrorBoundary>}
+      {id === 'app' && <ErrorBoundary><NotifyCoach /></ErrorBoundary>}
       {window.KrataNative?.updateInfo && <ErrorBoundary><UpdateBanner /></ErrorBoundary>}
       <CropperHost />
       <Toasts />

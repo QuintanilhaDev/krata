@@ -20,6 +20,7 @@ import { PasswordInput, Strength, passwordError } from './Auth'
 import { motionLevel, setMotion } from '../lib/motion'
 import { perfChoice, setPerfChoice, type PerfChoice } from '../lib/perf'
 import { AppDownload, AppInstallSteps, AppNotificationSettings } from './AppDownload'
+import { desktopOn, desktopPermission, disableDesktop, enableDesktop, pushActive, showLocal } from '../lib/push'
 import { UpdateRow } from './AppUpdate'
 import { cropImage } from './Cropper'
 import { PrismaSettings } from './Prisma'
@@ -147,6 +148,37 @@ function Invite({ serverId }: Of<'invite'>) {
 }
 
 /** Amigos que ainda não estão no servidor: um toque manda o convite no privado. */
+/** Notificações no computador: ligar, ver se o aviso com a aba fechada está ativo e testar. */
+function DesktopNotifySettings() {
+  const me = useApp((s) => s.me)
+  const [on, setOn] = useState(desktopOn())
+  const [push, setPush] = useState(pushActive())
+  const [busy, setBusy] = useState(false)
+  const perm = desktopPermission()
+  if (perm === 'unsupported') return <p className="notice">Este navegador não mostra notificações. Use o Chrome, Edge ou Firefox no computador.</p>
+  return (
+    <>
+      <label className="switch-row"><span><strong>Notificações no computador</strong><span className="muted">{perm === 'denied' ? 'Bloqueadas pelo navegador: clique no cadeado ao lado do endereço do site e permita as notificações.' : on ? (push ? 'Ligadas — chegam até com a aba do Krata fechada (o navegador precisa estar aberto).' : 'Ligadas enquanto o Krata estiver aberto numa aba.') : 'Toda mensagem privada, de grupo e quando te marcam com @ ou respondem você.'}</span></span>
+        <input type="checkbox" className="switch" checked={on} disabled={busy || perm === 'denied'} onChange={async (e) => {
+          setBusy(true)
+          if (!e.target.checked) { await disableDesktop(); setOn(false); setPush(false) }
+          else if (me) {
+            const r = await enableDesktop(me)
+            if (r === 'blocked') toast('O navegador bloqueou. Libere as notificações no cadeado ao lado do endereço do site.', 'error')
+            setOn(desktopOn()); setPush(pushActive())
+          }
+          setBusy(false)
+        }} /></label>
+      {on && (
+        <div className="switch-row">
+          <span><strong>Ver como fica</strong><span className="muted">Mostra uma notificação de exemplo agora.</span></span>
+          <button className="btn ghost small" onClick={() => void showLocal({ t: 'Prisma', b: 'Assim chegam as tuas mensagens: foto, nome e o que disseram. 💚', who: 'Prisma', au: null, ac: '#00A86B', ch: 'teste', sv: null, id: 'teste', ts: Date.now(), img: null, k: 'dm' })}>Testar</button>
+        </div>
+      )}
+    </>
+  )
+}
+
 function InviteFriends({ serverId }: { serverId: string }) {
   const state = useDirectory()
   const [sent, setSent] = useState<Record<string, 'busy' | 'sent' | 'blocked' | 'error'>>({})
@@ -377,7 +409,6 @@ function Settings({ tab: initialTab }: Of<'settings'>) {
   const [voice, setVoice] = useState(voiceSettings())
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const [sound, setSound] = useState(localStorage.getItem('krata-sounds') !== 'off')
-  const [notify, setNotify] = useState(localStorage.getItem('krata-notify') === 'on' && 'Notification' in window && Notification.permission === 'granted')
   const banner = useRef<HTMLInputElement>(null)
   const dirty = (Object.keys(f) as (keyof typeof f)[]).some((k) => f[k] !== (me[k] ?? null))
 
@@ -469,14 +500,7 @@ function Settings({ tab: initialTab }: Of<'settings'>) {
         {tab === 'avisos' && (
           <>
             <label className="switch-row"><span><strong>Sons</strong><span className="muted">Mensagem nova, alguém entrando na sala, chamada recebida.</span></span><input type="checkbox" className="switch" checked={sound} onChange={(e) => { setSound(e.target.checked); localStorage.setItem('krata-sounds', e.target.checked ? 'on' : 'off') }} /></label>
-            <label className="switch-row"><span><strong>Notificações do navegador</strong><span className="muted">Avisa de mensagens diretas e menções quando o Krata está em segundo plano.</span></span>
-              <input type="checkbox" className="switch" checked={notify} onChange={async (e) => {
-                if (!e.target.checked) { setNotify(false); localStorage.setItem('krata-notify', 'off'); return }
-                if (!('Notification' in window)) return toast('Este navegador não tem notificações.', 'error')
-                const perm = await Notification.requestPermission()
-                if (perm !== 'granted') return toast('As notificações estão bloqueadas neste navegador. Libere no cadeado da barra de endereço.', 'error')
-                setNotify(true); localStorage.setItem('krata-notify', 'on')
-              }} /></label>
+            {window.KrataNative ? <AppNotificationSettings /> : <DesktopNotifySettings />}
           </>
         )}
         {tab === 'visual' && (

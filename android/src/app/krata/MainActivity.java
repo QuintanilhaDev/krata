@@ -51,7 +51,7 @@ import java.util.Map;
 public class MainActivity extends Activity {
     static final String APP_URL = "https://krata-henna.vercel.app/";
     static final String APP_HOST = Uri.parse(APP_URL).getHost();
-    static final String VERSION = "1.4.0";
+    static final String VERSION = "1.5.0";
     static volatile boolean visible = false;
 
     private static final int REQ_SCREEN = 41;
@@ -143,7 +143,7 @@ public class MainActivity extends Activity {
         Updater.check(this, false);
         // notificações: volta a agendar a busca em segundo plano
         SyncJob.schedule(this);
-        if (Inbox.configured(this)) SyncService.start(this);
+        if (Inbox.configured(this)) { SyncService.start(this); SyncAlarm.schedule(this, 15_000L); }
     }
 
     private String startUrl(Intent intent) {
@@ -269,12 +269,50 @@ public class MainActivity extends Activity {
                 Notifier.channels(MainActivity.this);
                 SyncJob.schedule(MainActivity.this);
                 SyncService.start(MainActivity.this);
+                SyncAlarm.schedule(MainActivity.this, 15_000L);
             } catch (Throwable ignored) {}
+        }
+
+        /** Notificação de exemplo (configurações → "Ver como fica"). */
+        @JavascriptInterface public void testNotification() {
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    try {
+                        Notifier.clearChannel(MainActivity.this, "krata-teste");
+                        JSONObject m = new JSONObject();
+                        m.put("id", "teste-" + System.currentTimeMillis());
+                        m.put("channel_id", "krata-teste");
+                        m.put("kind", "dm");
+                        m.put("author", "Prisma");
+                        m.put("author_username", "prisma");
+                        m.put("author_color", "#00A86B");
+                        m.put("content", "Assim chegam as tuas mensagens: foto, nome e resposta rápida. 💚");
+                        m.put("created_at", Inbox.iso(new java.util.Date()));
+                        Notifier.show(MainActivity.this, m, false);
+                    } catch (Throwable ignored) {}
+                }
+            }).start();
+        }
+
+        /** Diagnóstico: permissões e a última conferência de mensagens. */
+        @JavascriptInterface public String deliveryStatus() {
+            try {
+                JSONObject o = new JSONObject();
+                PowerManager pm = getSystemService(PowerManager.class);
+                android.app.AlarmManager am = getSystemService(android.app.AlarmManager.class);
+                o.put("notifications", getSystemService(NotificationManager.class).areNotificationsEnabled());
+                o.put("background", pm == null || pm.isIgnoringBatteryOptimizations(getPackageName()));
+                o.put("exact", Build.VERSION.SDK_INT < 31 || (am != null && am.canScheduleExactAlarms()));
+                o.put("lastOk", Inbox.prefs(MainActivity.this).getLong("last_ok", 0));
+                o.put("lastTry", Inbox.prefs(MainActivity.this).getLong("last_try", 0));
+                return o.toString();
+            } catch (Throwable t) { return "{}"; }
         }
 
         @JavascriptInterface public void clearInbox() {
             if (!trusted()) return;
             Inbox.clear(MainActivity.this);
+            SyncAlarm.cancel(MainActivity.this);
             SyncService.stop(MainActivity.this);
             SyncJob.cancel(MainActivity.this);
         }
@@ -339,6 +377,7 @@ public class MainActivity extends Activity {
             if (!trusted()) return;
             Inbox.setLiveSync(MainActivity.this, on);
             if (on) SyncService.start(MainActivity.this); else SyncService.stop(MainActivity.this);
+            SyncAlarm.schedule(MainActivity.this, SyncAlarm.interval(MainActivity.this));
         }
 
         /** "video" = H.264 por hardware (rápido); "jpeg" = modo compatível. */

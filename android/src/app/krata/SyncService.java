@@ -43,6 +43,7 @@ public class SyncService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (!Inbox.configured(this) || !Inbox.liveSync(this)) { stopSelf(); return START_NOT_STICKY; }
         if (!foreground()) { stopSelf(); return START_NOT_STICKY; }
+        SyncAlarm.schedule(this, SyncAlarm.interval(this));
         if (!running) {
             running = true;
             thread = new HandlerThread("krata-sync");
@@ -63,11 +64,18 @@ public class SyncService extends Service {
         @Override public void run() {
             if (!running) return;
             boolean ok = true;
-            if (!MainActivity.visible) ok = Inbox.sync(SyncService.this);
-            if (!ok || !Inbox.configured(SyncService.this)) { stopSelf(); return; }
             PowerManager pm = getSystemService(PowerManager.class);
-            long delay = pm != null && pm.isInteractive() ? 12_000L : 40_000L;
-            if (handler != null) handler.postDelayed(this, delay);
+            PowerManager.WakeLock wl = pm == null ? null : pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "krata:loop");
+            try {
+                if (wl != null) wl.acquire(20_000L);
+                if (!MainActivity.visible) ok = Inbox.sync(SyncService.this);
+            } finally {
+                if (wl != null && wl.isHeld()) wl.release();
+            }
+            if (!ok || !Inbox.configured(SyncService.this)) { SyncAlarm.cancel(SyncService.this); stopSelf(); return; }
+            boolean on = pm != null && pm.isInteractive();
+            // tela acesa: a cada 8 s; apagada, o despertador (SyncAlarm) acorda o celular e confere
+            if (handler != null) handler.postDelayed(this, on ? 8_000L : 30_000L);
         }
     };
 
@@ -96,6 +104,13 @@ public class SyncService extends Service {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /** Tiraram o Krata da lista de apps recentes: o despertador continua conferindo. */
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        SyncAlarm.schedule(this, 5_000L);
+        super.onTaskRemoved(rootIntent);
     }
 
     @Override

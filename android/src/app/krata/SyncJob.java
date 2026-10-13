@@ -35,6 +35,7 @@ public class SyncJob extends JobService {
                 if (!MainActivity.visible) Inbox.sync(SyncJob.this);
                 Updater.checkQuietly(SyncJob.this);
                 SyncService.start(SyncJob.this);
+                SyncAlarm.schedule(SyncJob.this, SyncAlarm.interval(SyncJob.this)); // reacende o despertador se ele parou
                 jobFinished(params, false);
             }
         }).start();

@@ -3,6 +3,7 @@ import { dropChannel, errorText, openChannel as openRealtime, safeMediaUrl, supa
 import { sounds } from '../lib/sound'
 import type { Attachment, Channel, CustomEmoji, DmMember, Friendship, Member, Message, Profile, Reaction, Role, Server, Status } from '../lib/types'
 import { appVisible, clearChannelNotifications, nativeNotify, unregisterDevice } from '../lib/appNotify'
+import { desktopOn, dropPush, pingPush, preview as pushPreview, pushActive, showLocal } from '../lib/push'
 import { MAX_FILE_BYTES, MAX_FILES, describeFile, uploadFile } from '../lib/upload'
 import { fileSize } from '../lib/time'
 import { channelTitle, get, initialState, set, toast, type MsgList, type Nav } from './app'
@@ -75,6 +76,7 @@ async function teardown() {
 
 export async function signOut() {
   await unregisterDevice(get().userId)
+  await dropPush(get().userId)
   await stopVoiceEverything()
   await supabase.auth.signOut().catch(() => {})
   if (get().userId) await teardown()
@@ -350,6 +352,8 @@ async function deliver(m: Message): Promise<boolean> {
   }
   const saved = normalize(data as Record<string, unknown>)
   patchMessage(m.id, (x) => ({ ...saved, reactions: x.reactions }))
+  // avisa quem precisa (computador e celular dos outros), mesmo se o banco não chamar sozinho
+  pingPush(saved, get().channels.find((c) => c.id === saved.channel_id))
   return true
 }
 
@@ -766,8 +770,10 @@ async function notify(m: Message) {
     await ensureProfiles(s.dmMembers.filter((d) => d.channel_id === m.channel_id).map((d) => d.user_id))
     s = get()
   }
-  const mentioned = !!s.me && new RegExp(`(^|\\s)@(${s.me.username}|todos)(?![a-z0-9_.])`, 'i').test(m.content)
-  if (channel.server_id && !mentioned) return
+  const mentioned = !!s.me && new RegExp(`(^|\\s)@(${s.me.username.replace(/\./g, '\\.')}|todos)(?![a-z0-9_.])`, 'i').test(m.content)
+  // responder uma mensagem sua também conta como menção (igual ao Discord)
+  const repliedToMe = !!m.reply_to && Object.values(s.messages).some((l) => l.items.some((x) => x.id === m.reply_to && x.author_id === s.userId))
+  if (channel.server_id && !mentioned && !repliedToMe) return
   if (window.KrataNative?.notify) {
     // app Android: notificação do sistema (com foto, nome e resposta rápida)
     if (s.nav.channelId === m.channel_id && appVisible()) return
@@ -775,15 +781,19 @@ async function notify(m: Message) {
     const members = channel.server_id ? 0 : s.dmMembers.filter((d) => d.channel_id === channel.id).length
     if (nativeNotify(m, channel, s.profiles[m.author_id], { title: channel.server_id ? channel.name : channelTitle(s, channel), serverName: server?.name, serverIcon: server?.icon_url, members })) return
   }
-  const viewing = s.nav.channelId === m.channel_id && document.visibilityState === 'visible' && document.hasFocus()
+  const focused = document.visibilityState === 'visible' && document.hasFocus()
+  const viewing = s.nav.channelId === m.channel_id && focused
   if (viewing) return
   if (localStorage.getItem('krata-sounds') !== 'off') sounds.message()
-  if ('Notification' in window && Notification.permission === 'granted' && localStorage.getItem('krata-notify') === 'on' && document.visibilityState !== 'visible') {
-    const author = s.profiles[m.author_id]?.display_name || 'Nova mensagem'
-    try {
-      const n = new Notification(channel.server_id ? `${author} em #${channel.name}` : author, { body: m.content || 'Enviou um arquivo', tag: m.channel_id, icon: '/icon.svg' })
-      n.onclick = () => { window.focus(); navigate({ serverId: channel.server_id, channelId: channel.id }); n.close() }
-    } catch { /* notificações indisponíveis */ }
+  // computador: com o Web Push ligado, o aviso vem do servidor (funciona até com a aba fechada);
+  // sem ele, o próprio site avisa quando a janela não está em foco
+  if (desktopOn() && !focused && !pushActive()) {
+    const author = s.profiles[m.author_id]
+    const server = s.servers.find((x) => x.id === channel.server_id)
+    const who = author?.display_name || 'Alguém'
+    const title = channel.server_id ? `${who} (#${channel.name}, ${server?.name || 'servidor'})` : channel.kind === 'group' ? `${who} · ${channelTitle(s, channel)}` : who
+    const img = m.attachments.find((a) => a.type.startsWith('image/') && a.url.startsWith('https://'))?.url || null
+    void showLocal({ t: title, b: pushPreview(m.content, m.attachments), who, au: author?.avatar_url || null, ac: author?.accent_color || '#00A86B', ch: channel.id, sv: channel.server_id, id: m.id, ts: Date.parse(m.created_at) || Date.now(), img, k: channel.server_id ? (repliedToMe && !mentioned ? 'reply' : 'mention') : channel.kind })
   }
 }
 

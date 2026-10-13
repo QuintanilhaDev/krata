@@ -1,1 +1,1 @@
-Escolha de quais apps o som vai na transmissão, volume das transmissões, GIFs e ajuste da foto.
+Notificações que chegam sempre: toda mensagem privada, de grupo, menção e resposta, mesmo com a tela apagada. Botão para testar a notificação.

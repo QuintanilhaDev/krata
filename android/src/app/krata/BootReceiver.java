@@ -10,6 +10,7 @@ public class BootReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         if (!Inbox.configured(context)) return;
         SyncJob.schedule(context);
+        SyncAlarm.schedule(context, 10_000L);
         SyncService.start(context);
     }
 }

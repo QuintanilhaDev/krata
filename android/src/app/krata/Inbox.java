@@ -54,6 +54,7 @@ final class Inbox {
     }
 
     static void clear(Context c) {
+        SyncAlarm.cancel(c);
         prefs(c).edit().remove("secret").remove("cursor").remove("seen").remove("user").remove("username").apply();
         Notifier.cancelAll(c);
     }
@@ -82,7 +83,9 @@ final class Inbox {
                 JSONObject body = new JSONObject();
                 body.put("p_secret", secret);
                 body.put("p_after", p.getString("cursor", iso(new Date(System.currentTimeMillis() - 600_000L))));
+                p.edit().putLong("last_try", System.currentTimeMillis()).apply();
                 String res = rpc(c, "device_inbox", body);
+                p.edit().putLong("last_ok", System.currentTimeMillis()).apply();
                 JSONObject out = new JSONObject(res);
                 JSONArray list = out.optJSONArray("messages");
                 if (list != null) {

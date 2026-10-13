@@ -45,8 +45,16 @@ export function AppNotificationSettings() {
   })
   const [st, setSt] = useState(read)
   const [live, setLive] = useState(() => { try { return localStorage.getItem('krata-live-sync') !== 'off' } catch { return true } })
+  const [last, setLast] = useState('')
   useEffect(() => {
-    const t = setInterval(() => setSt(read()), 1500)
+    const status = () => {
+      try {
+        const d = JSON.parse(n?.deliveryStatus?.() || '{}') as { lastOk?: number }
+        if (d.lastOk) { const sec = Math.max(0, Math.round((Date.now() - d.lastOk) / 1000)); setLast(sec < 60 ? `há ${sec} s` : `há ${Math.round(sec / 60)} min`) }
+      } catch { /* app antigo */ }
+    }
+    status()
+    const t = setInterval(() => { setSt(read()); status() }, 1500)
     return () => clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -58,9 +66,15 @@ export function AppNotificationSettings() {
         {!st.allowed && <button className="btn primary small" onClick={() => n.requestNotifications?.()}>Liberar</button>}
       </div>
       <label className="switch-row">
-        <span><strong>Receber na hora, mesmo com o app fechado</strong><span className="muted">Mantém uma conexão leve em segundo plano (aparece um ícone discreto na barra). Desligado, as mensagens chegam a cada 15 minutos.</span></span>
+        <span><strong>Receber na hora, mesmo com o app fechado</strong><span className="muted">Confere as mensagens a cada poucos segundos em segundo plano (aparece um ícone discreto na barra). Desligado, elas chegam com atraso de alguns minutos.{last ? ` Última conferência: ${last}.` : ''}</span></span>
         <input type="checkbox" className="switch" checked={live} onChange={(e) => { setLive(e.target.checked); try { localStorage.setItem('krata-live-sync', e.target.checked ? 'on' : 'off') } catch { /* sem armazenamento */ } n.setLiveSync?.(e.target.checked) }} />
       </label>
+      {n.testNotification && (
+        <div className="switch-row">
+          <span><strong>Ver como fica</strong><span className="muted">Mostra uma notificação de exemplo agora.</span></span>
+          <button className="btn ghost small" onClick={() => n.testNotification?.()}>Testar</button>
+        </div>
+      )}
       {!st.background && (
         <div className="switch-row">
           <span><strong><BatteryCharging size={15} /> Economia de bateria está segurando o Krata</strong><span className="muted">Sem liberar, o Android pode atrasar as notificações quando a tela está apagada.</span></span>
