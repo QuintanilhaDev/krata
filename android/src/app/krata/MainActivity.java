@@ -51,7 +51,7 @@ import java.util.Map;
 public class MainActivity extends Activity {
     static final String APP_URL = "https://krata-henna.vercel.app/";
     static final String APP_HOST = Uri.parse(APP_URL).getHost();
-    static final String VERSION = "1.5.0";
+    static final String VERSION = "1.5.1";
     static volatile boolean visible = false;
 
     private static final int REQ_SCREEN = 41;
@@ -294,6 +294,19 @@ public class MainActivity extends Activity {
             }).start();
         }
 
+        /** Confere as mensagens agora (botão do diagnóstico) e devolve o resultado. */
+        @JavascriptInterface public String syncNow() {
+            try {
+                boolean ok = Inbox.sync(MainActivity.this);
+                SyncService.start(MainActivity.this);
+                SyncAlarm.schedule(MainActivity.this, SyncAlarm.interval(MainActivity.this));
+                JSONObject o = new JSONObject();
+                o.put("ok", ok && Inbox.prefs(MainActivity.this).getString("last_error", "").isEmpty());
+                o.put("error", Inbox.prefs(MainActivity.this).getString("last_error", ""));
+                return o.toString();
+            } catch (Throwable t) { return "{\"ok\":false}"; }
+        }
+
         /** Diagnóstico: permissões e a última conferência de mensagens. */
         @JavascriptInterface public String deliveryStatus() {
             try {
@@ -305,6 +318,10 @@ public class MainActivity extends Activity {
                 o.put("exact", Build.VERSION.SDK_INT < 31 || (am != null && am.canScheduleExactAlarms()));
                 o.put("lastOk", Inbox.prefs(MainActivity.this).getLong("last_ok", 0));
                 o.put("lastTry", Inbox.prefs(MainActivity.this).getLong("last_try", 0));
+                o.put("lastError", Inbox.prefs(MainActivity.this).getString("last_error", ""));
+                o.put("configured", Inbox.configured(MainActivity.this));
+                o.put("service", SyncService.alive);
+                o.put("live", Inbox.liveSync(MainActivity.this));
                 return o.toString();
             } catch (Throwable t) { return "{}"; }
         }

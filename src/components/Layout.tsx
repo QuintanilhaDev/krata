@@ -352,8 +352,8 @@ export function FriendsView() {
                   <li key={f.id} className="friend-row">
                     <Avatar profile={p} size={40} />
                     <span className="grow two-line"><strong>{p.display_name}</strong><span>{mine ? 'Pedido enviado' : 'Quer ser seu amigo'} · @{p.username}</span></span>
-                    {!mine && <button className="btn primary small" onClick={() => void acceptFriend(f.id)}><Check size={16} /> Aceitar</button>}
-                    <button className="btn ghost small" onClick={() => void removeFriend(f.id)}>{mine ? 'Cancelar' : 'Recusar'}</button>
+                    {!mine && <button className="btn primary small row-act" aria-label={`Aceitar ${p.display_name}`} onClick={() => void acceptFriend(f.id)}><Check size={16} /> <span className="row-act-txt">Aceitar</span></button>}
+                    <button className="btn ghost small row-act" aria-label={`${mine ? 'Cancelar pedido para' : 'Recusar'} ${p.display_name}`} onClick={() => void removeFriend(f.id)}><X size={16} className="row-act-ico" /> <span className="row-act-txt">{mine ? 'Cancelar' : 'Recusar'}</span></button>
                   </li>
                 )
               })}

@@ -10,7 +10,8 @@ export const supabase: SupabaseClient = createClient(
   isConfigured ? SUPABASE_KEY : 'missing-key-missing-key-missing-key',
   {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false, storageKey: 'krata-auth' },
-    realtime: { params: { eventsPerSecond: 40 } },
+    // religa rápido (sem esperar 10 s) e percebe conexão morta em até ~20 s
+    realtime: { params: { eventsPerSecond: 40 }, heartbeatIntervalMs: 15000, reconnectAfterMs: (tries: number) => [250, 700, 1500, 3000][tries - 1] ?? 5000 },
   },
 )
 

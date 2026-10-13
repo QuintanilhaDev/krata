@@ -1,6 +1,6 @@
 // Aviso de versão nova dentro do app Android, com o botão que baixa e instala ali mesmo.
 import { Download, RefreshCw, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export interface UpdateInfo {
   state: 'idle' | 'available' | 'downloading' | 'permission' | 'installing' | 'error' | 'latest'
@@ -43,12 +43,22 @@ export function UpdateBanner() {
     window.addEventListener('krata-update', show)
     return () => window.removeEventListener('krata-update', show)
   }, [])
-  if (!info || !info.versionName) return null
-  const working = info.state === 'downloading' || info.state === 'installing' || info.state === 'permission'
-  if (!['available', 'downloading', 'permission', 'installing', 'error'].includes(info.state)) return null
-  if (!working && !forced && hidden === info.versionName) return null
+  const box = useRef<HTMLDivElement>(null)
+  const working = !!info && (info.state === 'downloading' || info.state === 'installing' || info.state === 'permission')
+  const visible = !!info && !!info.versionName && ['available', 'downloading', 'permission', 'installing', 'error'].includes(info.state) && (working || forced || hidden !== info.versionName)
+  // o aviso empurra o app para baixo (não cobre os botões do topo)
+  useEffect(() => {
+    const root = document.documentElement
+    if (!visible || !box.current) { delete root.dataset.update; root.style.removeProperty('--update-h'); return }
+    const el = box.current
+    const ro = new ResizeObserver(() => root.style.setProperty('--update-h', `${Math.ceil(el.getBoundingClientRect().height) + 8}px`))
+    ro.observe(el)
+    root.dataset.update = '1'
+    return () => { ro.disconnect(); delete root.dataset.update; root.style.removeProperty('--update-h') }
+  }, [visible])
+  if (!info || !visible) return null
   return (
-    <div className="app-update" role="status">
+    <div ref={box} className="app-update" role="status">
       <span className="app-update-icon">{working ? <RefreshCw size={18} className="spin" /> : <Download size={18} />}</span>
       <span className="app-update-text">
         <strong>{info.state === 'downloading' ? `Baixando a versão ${info.versionName}… ${info.progress}%` : info.state === 'installing' ? 'Abrindo a instalação…' : info.state === 'permission' ? 'Libere “Permitir desta fonte” e volte aqui' : info.state === 'error' ? 'A atualização não deu certo' : `Krata ${info.versionName} disponível`}</strong>

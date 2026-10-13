@@ -18,7 +18,7 @@ import { GifPicker, useGifFavorites } from './GifPicker'
 import { gifIdFromUrl, gifUrl } from '../lib/gifs'
 import { Markdown, plain } from './Markdown'
 import { channelMention } from '../prisma/agent'
-import { PRISMA_PROFILE, PrismaMark } from './Prisma'
+import { PRISMA_PROFILE, PrismaHeadButton, PrismaMark } from './Prisma'
 import { Avatar, ErrorBoundary, Spinner } from './ui'
 
 const EMPTY: Message[] = []
@@ -46,6 +46,7 @@ function ChatHeader({ channel }: { channel: Channel }) {
         {channel.topic && <span className="chat-head-sub">{channel.topic}</span>}
       </div>
       <div className="chat-head-actions">
+        <PrismaHeadButton />
         {isDm && !calling && (
           <>
             <button data-prisma="call" className="icon-btn" data-tip="Ligar" aria-label="Iniciar chamada de voz" onClick={() => void joinVoice(channel.id, { ring: true })}><Phone size={19} /></button>

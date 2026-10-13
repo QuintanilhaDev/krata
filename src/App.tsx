@@ -67,6 +67,9 @@ function Shell() {
   useEffect(() => { document.documentElement.dataset.members = members ? '1' : '0' }, [members])
   useEffect(() => { document.documentElement.dataset.nav = mobileNav && !stage ? '1' : '0' }, [mobileNav, stage])
   useEffect(() => { document.documentElement.dataset.call = inCall ? '1' : '0' }, [inCall])
+  // conversa aberta (tem campo de texto): no celular a Prisma vai para o topo e o botão flutuante some
+  const chatOpen = !!channel && channel.kind !== 'voice'
+  useEffect(() => { document.documentElement.dataset.chat = chatOpen ? '1' : '0' }, [chatOpen])
   return (
     <div ref={shellRef} className={`shell${mobileNav && !stage ? ' nav-open' : ''}${members ? ' members-open' : ''}`}>
       <a className="skip" href="#main">Pular para o conteúdo</a>

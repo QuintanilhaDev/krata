@@ -1,1 +1,1 @@
-Notificações que chegam sempre: toda mensagem privada, de grupo, menção e resposta, mesmo com a tela apagada. Botão para testar a notificação.
+Notificações em segundo plano consertadas, diagnóstico das notificações nas configurações e layout do celular sem botões por cima de outros.

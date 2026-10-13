@@ -125,6 +125,22 @@ function Fab() {
   )
 }
 
+/** No celular, dentro de uma conversa: a Prisma fica no topo (não cobre o campo de texto). Toque fala; segurar abre o chat. */
+export function PrismaHeadButton() {
+  const { mood, recording } = usePrisma(useShallow((s) => ({ mood: s.mood, recording: s.recording })))
+  const hold = useRef<number | null>(null)
+  const longPressed = useRef(false)
+  const start = () => { longPressed.current = false; hold.current = window.setTimeout(() => { longPressed.current = true; pset((s) => ({ chatOpen: !s.chatOpen })); navigator.vibrate?.(12) }, 480) }
+  const end = () => { if (hold.current) clearTimeout(hold.current); hold.current = null }
+  return (
+    <button data-prisma="fab-head" className={`icon-btn prisma-head only-mobile mood-${mood}${recording ? ' recording' : ''}`} aria-label={recording ? 'Parar e enviar para a Prisma' : 'Falar com a Prisma (segure para escrever)'} aria-pressed={recording}
+      onPointerDown={start} onPointerUp={end} onPointerLeave={end} onPointerCancel={end} onContextMenu={(e) => e.preventDefault()}
+      onClick={() => { if (longPressed.current) return; void pushToTalk() }}>
+      <Gem size={22} speed={recording ? 2.4 : 0.9} />
+    </button>
+  )
+}
+
 /** Botão da Prisma no painel do usuário (computador e celular). */
 export function PrismaButton() {
   const open = usePrisma((s) => s.chatOpen)

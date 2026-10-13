@@ -1,4 +1,5 @@
-import { Bell, BatteryCharging, Download, Smartphone } from 'lucide-react'
+import { AlertTriangle, Bell, BatteryCharging, CheckCircle2, Download, Smartphone } from 'lucide-react'
+import { inboxProblem } from '../lib/appNotify'
 import { useEffect, useState } from 'react'
 import { APK_URL, APP_VERSION, isApp, isIOSDevice } from '../lib/native'
 
@@ -36,51 +37,62 @@ export function AppDownload({ variant = 'card' }: { variant?: 'card' | 'login' }
   )
 }
 
-/** Dentro do app: notificações, segundo plano e conexão em tempo real. */
+interface Delivery { notifications?: boolean; background?: boolean; configured?: boolean; service?: boolean; live?: boolean; lastOk?: number; lastTry?: number; lastError?: string }
+const ago = (t?: number) => { if (!t) return 'nunca'; const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? `há ${s} s` : s < 3600 ? `há ${Math.round(s / 60)} min` : `há ${Math.round(s / 3600)} h` }
+
+/** Dentro do app: notificações, segundo plano, diagnóstico e teste. */
 export function AppNotificationSettings() {
   const n = window.KrataNative
-  const read = () => ({
-    allowed: (() => { try { return n?.notificationsAllowed?.() ?? true } catch { return true } })(),
-    background: (() => { try { return n?.backgroundAllowed?.() ?? true } catch { return true } })(),
-  })
+  const read = (): Delivery => {
+    let d: Delivery = {}
+    try { d = JSON.parse(n?.deliveryStatus?.() || '{}') as Delivery } catch { /* app antigo */ }
+    try { d.notifications ??= n?.notificationsAllowed?.() ?? true } catch { d.notifications = true }
+    try { d.background ??= n?.backgroundAllowed?.() ?? true } catch { d.background = true }
+    return d
+  }
   const [st, setSt] = useState(read)
   const [live, setLive] = useState(() => { try { return localStorage.getItem('krata-live-sync') !== 'off' } catch { return true } })
-  const [last, setLast] = useState('')
+  const [checking, setChecking] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
   useEffect(() => {
-    const status = () => {
-      try {
-        const d = JSON.parse(n?.deliveryStatus?.() || '{}') as { lastOk?: number }
-        if (d.lastOk) { const sec = Math.max(0, Math.round((Date.now() - d.lastOk) / 1000)); setLast(sec < 60 ? `há ${sec} s` : `há ${Math.round(sec / 60)} min`) }
-      } catch { /* app antigo */ }
-    }
-    status()
-    const t = setInterval(() => { setSt(read()); status() }, 1500)
+    const t = setInterval(() => setSt(read()), 1500)
     return () => clearInterval(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   if (!n?.setInbox) return null
+  const problem = inboxProblem === 'sql' ? 'O servidor do Krata ainda não tem as notificações do app: rode o arquivo supabase/notificacoes.sql no Supabase.' : st.lastError || ''
+  const healthy = st.notifications && st.configured !== false && !problem && (!st.lastOk || Date.now() - st.lastOk < 5 * 60_000)
+  const rows: [boolean | undefined, string, string][] = [
+    [st.notifications, 'Permissão de notificação', st.notifications ? 'Liberada' : 'Bloqueada no Android'],
+    [st.background, 'Economia de bateria', st.background ? 'Liberada: chega com a tela apagada' : 'Segurando o Krata: as mensagens atrasam'],
+    [st.configured !== false && inboxProblem !== 'sql', 'Conta ligada a este celular', st.configured === false ? 'Ainda não (abra uma conversa para ligar)' : inboxProblem === 'sql' ? 'Falta configurar o servidor' : 'Sim'],
+    [!!st.lastOk && !st.lastError, 'Última conferência de mensagens', st.lastError ? 'Com erro' : ago(st.lastOk)],
+  ]
   return (
     <div className="app-notify">
-      <div className="switch-row">
-        <span><strong><Bell size={15} /> Notificações de mensagens</strong><span className="muted">{st.allowed ? 'Ligadas: conversas privadas, grupos e quando te marcam com @ num servidor.' : 'Bloqueadas no Android. Toque para liberar.'}</span></span>
-        {!st.allowed && <button className="btn primary small" onClick={() => n.requestNotifications?.()}>Liberar</button>}
+      <div className={`notify-health${healthy ? ' ok' : ' bad'}`}>
+        <strong>{healthy ? <><CheckCircle2 size={16} /> Notificações funcionando</> : <><AlertTriangle size={16} /> As notificações podem não chegar</>}</strong>
+        <ul>{rows.map(([ok, k, v]) => <li key={k} className={ok === false ? 'bad' : ok ? 'ok' : ''}><span>{k}</span><b>{v}</b></li>)}</ul>
+        {problem && <p className="notify-health-err">{problem}</p>}
+        <div className="notify-health-actions">
+          {!st.notifications && <button className="btn primary small" onClick={() => n.requestNotifications?.()}>Liberar notificações</button>}
+          {!st.background && <button className="btn primary small" onClick={() => n.openBackgroundSettings?.()}><BatteryCharging size={15} /> Liberar bateria</button>}
+          {n.syncNow && <button className="btn ghost small" disabled={checking} onClick={() => {
+            setChecking(true)
+            setTimeout(() => {
+              try { const r = JSON.parse(n.syncNow!() || '{}') as { ok?: boolean; error?: string }; setResult(r.ok ? 'Tudo certo: conferi agora e a conexão com o servidor está funcionando.' : `Deu erro: ${r.error || 'sem resposta do servidor'}`) } catch { setResult('Não consegui conferir agora.') }
+              setSt(read()); setChecking(false)
+            }, 30)
+          }}>{checking ? 'Conferindo…' : 'Conferir agora'}</button>}
+          {n.testNotification && <button className="btn ghost small" onClick={() => n.testNotification?.()}><Bell size={15} /> Testar</button>}
+        </div>
+        {result && <p className="notify-health-result">{result}</p>}
       </div>
       <label className="switch-row">
-        <span><strong>Receber na hora, mesmo com o app fechado</strong><span className="muted">Confere as mensagens a cada poucos segundos em segundo plano (aparece um ícone discreto na barra). Desligado, elas chegam com atraso de alguns minutos.{last ? ` Última conferência: ${last}.` : ''}</span></span>
+        <span><strong>Receber na hora, mesmo com o app fechado</strong><span className="muted">Confere as mensagens a cada poucos segundos em segundo plano (aparece um ícone discreto na barra). Desligado, elas chegam com alguns minutos de atraso.</span></span>
         <input type="checkbox" className="switch" checked={live} onChange={(e) => { setLive(e.target.checked); try { localStorage.setItem('krata-live-sync', e.target.checked ? 'on' : 'off') } catch { /* sem armazenamento */ } n.setLiveSync?.(e.target.checked) }} />
       </label>
-      {n.testNotification && (
-        <div className="switch-row">
-          <span><strong>Ver como fica</strong><span className="muted">Mostra uma notificação de exemplo agora.</span></span>
-          <button className="btn ghost small" onClick={() => n.testNotification?.()}>Testar</button>
-        </div>
-      )}
-      {!st.background && (
-        <div className="switch-row">
-          <span><strong><BatteryCharging size={15} /> Economia de bateria está segurando o Krata</strong><span className="muted">Sem liberar, o Android pode atrasar as notificações quando a tela está apagada.</span></span>
-          <button className="btn ghost small" onClick={() => n.openBackgroundSettings?.()}>Liberar</button>
-        </div>
-      )}
+      <p className="fine">Celular Xiaomi, Samsung ou Motorola? Além da bateria, procure o Krata em Configurações → Apps e ligue "Inicialização automática" (ou desligue "Colocar app em suspensão").</p>
     </div>
   )
 }

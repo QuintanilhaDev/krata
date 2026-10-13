@@ -85,7 +85,7 @@ final class Inbox {
                 body.put("p_after", p.getString("cursor", iso(new Date(System.currentTimeMillis() - 600_000L))));
                 p.edit().putLong("last_try", System.currentTimeMillis()).apply();
                 String res = rpc(c, "device_inbox", body);
-                p.edit().putLong("last_ok", System.currentTimeMillis()).apply();
+                p.edit().putLong("last_ok", System.currentTimeMillis()).remove("last_error").apply();
                 JSONObject out = new JSONObject(res);
                 JSONArray list = out.optJSONArray("messages");
                 if (list != null) {
@@ -102,9 +102,12 @@ final class Inbox {
                 }
                 return true;
             } catch (RevokedException e) {
+                p.edit().putString("last_error", "A chave deste aparelho foi apagada no servidor. Abra o Krata para ligar de novo.").apply();
                 clear(c);
                 return false;
             } catch (Throwable t) {
+                String msg = t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage();
+                p.edit().putString("last_error", msg.length() > 240 ? msg.substring(0, 240) : msg).apply();
                 return true; // sem rede: tenta na próxima
             }
         }
@@ -149,7 +152,8 @@ final class Inbox {
         con.disconnect();
         if (code >= 400) {
             if (text.contains("device_revoked")) throw new RevokedException();
-            throw new IllegalStateException("http " + code);
+            if (text.contains("PGRST202") || text.contains("Could not find the function")) throw new IllegalStateException("O servidor ainda não tem as notificações do app (falta rodar supabase/notificacoes.sql).");
+            throw new IllegalStateException("Erro " + code + " do servidor: " + (text.length() > 160 ? text.substring(0, 160) : text));
         }
         return text;
     }

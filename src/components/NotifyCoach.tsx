@@ -3,10 +3,12 @@
 import { BatteryCharging, Bell, BellRing, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { desktopOn, desktopSupported, enableDesktop } from '../lib/push'
-import { toast, useApp } from '../store/app'
+import { inboxProblem } from '../lib/appNotify'
+import { openModal, toast, useApp } from '../store/app'
 import { Gem } from './ui'
+import { usePrisma } from '../prisma/store'
 
-type Need = 'web' | 'app-perm' | 'app-battery' | null
+type Need = 'web' | 'app-perm' | 'app-battery' | 'app-error' | null
 const KEY = 'krata-coach'
 const snoozed = (need: string) => { try { return Date.now() < Number(localStorage.getItem(`${KEY}:${need}`) || 0) } catch { return false } }
 const snooze = (need: string, days: number) => { try { localStorage.setItem(`${KEY}:${need}`, String(Date.now() + days * 86400_000)) } catch { /* sem armazenamento */ } }
@@ -16,6 +18,8 @@ function currentNeed(): Need {
   if (n?.setInbox) {
     try { if (n.notificationsAllowed && !n.notificationsAllowed()) return 'app-perm' } catch { /* app antigo */ }
     try { if (n.backgroundAllowed && !n.backgroundAllowed()) return 'app-battery' } catch { /* app antigo */ }
+    if (inboxProblem) return 'app-error'
+    try { const d = JSON.parse(n.deliveryStatus?.() || '{}') as { lastError?: string }; if (d.lastError) return 'app-error' } catch { /* app antigo */ }
     return null
   }
   if (desktopSupported() && Notification.permission !== 'denied' && !desktopOn()) return 'web'
@@ -24,6 +28,8 @@ function currentNeed(): Need {
 
 export function NotifyCoach() {
   const me = useApp((s) => s.me)
+  const modal = useApp((s) => !!s.modal)
+  const prismaOpen = usePrisma((s) => s.chatOpen || !!s.panel)
   const [need, setNeed] = useState<Need>(null)
   const [busy, setBusy] = useState(false)
   useEffect(() => {
@@ -33,11 +39,12 @@ export function NotifyCoach() {
     document.addEventListener('visibilitychange', again)
     return () => { clearTimeout(t); document.removeEventListener('visibilitychange', again) }
   }, [])
-  if (!need || !me) return null
+  if (!need || !me || modal || prismaOpen) return null // nunca por cima de janelas ou do chat da Prisma
   const close = (days = 3) => { snooze(need, days); setNeed(null) }
   const copy = {
     web: { icon: <BellRing size={18} />, title: 'Receba as mensagens no computador', text: 'Ative as notificações para saber na hora quando alguém te chamar no privado, num grupo ou te marcar com @ — mesmo com o Krata minimizado ou a aba fechada.', cta: 'Ativar notificações' },
     'app-perm': { icon: <Bell size={18} />, title: 'Libere as notificações do Krata', text: 'O Android está bloqueando os avisos. Sem isso, você não fica sabendo das mensagens privadas e menções.', cta: 'Liberar' },
+    'app-error': { icon: <Bell size={18} />, title: 'As notificações não estão chegando', text: inboxProblem === 'sql' ? 'O servidor do Krata ainda não tem as notificações do app ligadas (falta rodar o arquivo supabase/notificacoes.sql no Supabase).' : 'O app não está conseguindo conferir as mensagens novas. Veja o diagnóstico para saber o que falta.', cta: 'Ver diagnóstico' },
     'app-battery': { icon: <BatteryCharging size={18} />, title: 'Não perca nenhuma mensagem', text: 'A economia de bateria do Android segura o Krata com a tela apagada, e as notificações chegam só às vezes. Toque em Liberar e escolha "Permitir" (ou "Sem restrições").', cta: 'Liberar' },
   }[need]
   async function go() {
@@ -52,6 +59,7 @@ export function NotifyCoach() {
     }
     if (need === 'app-perm') n?.requestNotifications?.()
     if (need === 'app-battery') n?.openBackgroundSettings?.()
+    if (need === 'app-error') { openModal({ type: 'settings', tab: 'avisos' }); setNeed(null) }
   }
   return (
     <aside className={`notify-coach ${need}`} role="dialog" aria-labelledby="notify-coach-title">

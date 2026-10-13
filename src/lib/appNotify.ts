@@ -12,19 +12,33 @@ export const appVisible = () => {
   return document.visibilityState === 'visible'
 }
 
-/** Liga as notificações do app para esta conta. */
+/** Problema de configuração no servidor que impede as notificações do app (para mostrar na tela). */
+export let inboxProblem: 'sql' | null = null
+
+/** Liga as notificações do app para esta conta (e confere se a chave do aparelho ainda vale). */
 export async function registerDevice(me: Profile) {
   const bridge = n()
   if (!bridge?.setInbox) return
   let secret = ''
   try { secret = localStorage.getItem(keyFor(me.id)) || '' } catch { /* sem armazenamento */ }
+  if (secret) {
+    // a chave pode ter sido apagada no servidor (limite de aparelhos, saída em outro lugar): aí o
+    // celular parava de receber para sempre. Confere e, se não vale mais, cria outra.
+    const { error } = await supabase.rpc('device_inbox', { p_secret: secret, p_after: new Date().toISOString() })
+    if (error && /device_revoked/.test(error.message || '')) secret = ''
+    else if (error && (error.code === 'PGRST202' || /Could not find the function|does not exist/i.test(error.message || ''))) { inboxProblem = 'sql'; return }
+  }
   if (!secret) {
     const model = (/Android [\d.]+; ([^;)]+)/.exec(navigator.userAgent)?.[1] || 'Android').trim()
     const { data, error } = await supabase.rpc('register_device', { p_name: `App · ${model}` })
-    if (error || typeof data !== 'string') return // tabela ainda não criada no Supabase
+    if (error || typeof data !== 'string') {
+      if (error && (error.code === 'PGRST202' || /Could not find the function|does not exist/i.test(error.message || ''))) inboxProblem = 'sql'
+      return
+    }
     secret = data
     try { localStorage.setItem(keyFor(me.id), secret) } catch { /* sem armazenamento */ }
   }
+  inboxProblem = null
   bridge.setInbox(JSON.stringify({ url: SUPABASE_URL, key: SUPABASE_KEY, secret, userId: me.id, username: me.username, name: me.display_name }))
   try { if (bridge.notificationsAllowed && !bridge.notificationsAllowed()) bridge.requestNotifications?.() } catch { /* app antigo */ }
 }

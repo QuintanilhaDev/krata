@@ -62,15 +62,20 @@ export async function startApp() {
   applyHash()
   window.addEventListener('hashchange', applyHash)
   window.addEventListener('online', resync)
+  window.addEventListener('online', wake)
+  window.addEventListener('focus', wake)
   document.addEventListener('visibilitychange', onVisible)
 }
 
 async function teardown() {
   window.removeEventListener('hashchange', applyHash)
   window.removeEventListener('online', resync)
+  window.removeEventListener('online', wake)
+  window.removeEventListener('focus', wake)
   document.removeEventListener('visibilitychange', onVisible)
   await stopVoiceEverything()
   await stopRealtime()
+  if (offlineTimer) { clearTimeout(offlineTimer); offlineTimer = 0 }
   set({ ...initialState, booting: false })
 }
 
@@ -83,7 +88,23 @@ export async function signOut() {
   history.replaceState(null, '', location.pathname)
 }
 
+let offlineTimer = 0
+let waking = false
+/** Voltou para o Krata (ou a conexão caiu): renova o login e religa o tempo real na hora. */
+async function wake() {
+  if (waking || !get().userId) return
+  waking = true
+  try {
+    const { data } = await supabase.auth.getSession() // renova o login se venceu enquanto o app dormia
+    if (data.session) await supabase.realtime.setAuth(data.session.access_token).catch(() => {})
+    const rt = supabase.realtime
+    if (!rt.isConnected() && !rt.isConnecting()) rt.connect()
+    else if (rt.isConnected()) void rt.sendHeartbeat().catch(() => {}) // conexão "zumbi": o batimento derruba e religa
+  } catch { /* tenta de novo na próxima */ } finally { waking = false }
+}
+
 function onVisible() {
+  if (document.visibilityState === 'visible') void wake()
   if (document.visibilityState !== 'visible' || !appVisible()) return
   const ch = get().nav.channelId
   if (ch && get().unread[ch]) void markRead(ch)
@@ -682,9 +703,12 @@ async function startRealtime() {
     if (status === 'SUBSCRIBED') {
       if (everSubscribed) void resync()
       everSubscribed = true
+      if (offlineTimer) { clearTimeout(offlineTimer); offlineTimer = 0 }
       set({ connection: 'ok' })
     } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-      if (get().userId) set({ connection: 'reconnecting' })
+      // só avisa se a queda durar: voltar para o app religa em menos de um segundo
+      if (get().userId && !offlineTimer) offlineTimer = window.setTimeout(() => { offlineTimer = 0; if (get().userId) set({ connection: 'reconnecting' }) }, 4000)
+      void wake()
     }
   })
 

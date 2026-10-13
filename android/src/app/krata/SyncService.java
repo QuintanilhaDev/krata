@@ -26,6 +26,7 @@ public class SyncService extends Service {
     private Handler handler;
     private ConnectivityManager.NetworkCallback netCallback;
     private volatile boolean running;
+    static volatile boolean alive = false;
 
     static void start(Context c) {
         if (!Inbox.configured(c) || !Inbox.liveSync(c)) return;
@@ -44,6 +45,7 @@ public class SyncService extends Service {
         if (!Inbox.configured(this) || !Inbox.liveSync(this)) { stopSelf(); return START_NOT_STICKY; }
         if (!foreground()) { stopSelf(); return START_NOT_STICKY; }
         SyncAlarm.schedule(this, SyncAlarm.interval(this));
+        alive = true;
         if (!running) {
             running = true;
             thread = new HandlerThread("krata-sync");
@@ -116,6 +118,7 @@ public class SyncService extends Service {
     @Override
     public void onDestroy() {
         running = false;
+        alive = false;
         try { if (netCallback != null) getSystemService(ConnectivityManager.class).unregisterNetworkCallback(netCallback); } catch (Throwable ignored) {}
         if (thread != null) thread.quitSafely();
         handler = null;
