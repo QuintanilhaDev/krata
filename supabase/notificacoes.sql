@@ -42,7 +42,7 @@ returns void language sql security definer set search_path = public as $$
   delete from public.devices where secret_hash = public.device_hash(p_secret);
 $$;
 
--- mensagens novas para o aparelho: conversas privadas e grupos sempre; servidores só com @menção
+-- mensagens novas para o aparelho: conversas privadas e grupos sempre; servidores com @menção, @todos ou resposta a uma mensagem sua
 create or replace function public.device_inbox(p_secret text, p_after timestamptz)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
@@ -74,7 +74,8 @@ begin
         (c.server_id is null and exists (select 1 from dm_members d where d.channel_id = c.id and d.user_id = v_uid))
         or (c.server_id is not null
             and exists (select 1 from server_members sm where sm.server_id = c.server_id and sm.user_id = v_uid)
-            and m.content ~* ('(^|\s)@(' || regexp_replace(v_me.username, '([.])', '\\\1', 'g') || '|todos)([^a-z0-9_.]|$)'))
+            and (m.content ~* ('(^|\s)@(' || regexp_replace(v_me.username, '([.])', '\\\1', 'g') || '|todos)([^a-z0-9_.]|$)')
+                 or exists (select 1 from messages r where r.id = m.reply_to and r.author_id = v_uid)))
       )
     order by m.created_at
     limit 40
