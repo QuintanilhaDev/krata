@@ -2,6 +2,7 @@
 // com animação e responde. Comandos são resolvidos pelo cérebro local; conversa livre e
 // pedidos que ele não entendeu vão para a IA da Groq — e o que a Groq resolve vira exemplo
 // para o cérebro local aprender.
+import { searchGifs, gifUrl } from '../lib/gifs'
 import { setMotion } from '../lib/motion'
 import { supabase } from '../lib/supabase'
 import type { Channel, Message, Profile } from '../lib/types'
@@ -272,6 +273,7 @@ export function ruleIntent(text: string): Intent | null {
 function missing(intent: Intent, s: Slots): boolean {
   switch (intent) {
     case 'create_server': case 'create_channel': case 'rename_server': case 'rename_channel': case 'set_display_name': return !s.name
+    case 'send_gif': return false
     case 'send_message': case 'set_bio': case 'set_custom_status': case 'edit_last': case 'set_topic': return !s.text
     case 'friend_request': case 'open_dm': return !s.userId && !s.username
     case 'call_user': case 'remove_friend': case 'kick_member': case 'promote_member': case 'demote_member': return !s.userId
@@ -304,6 +306,7 @@ function slotsFromCloud(a: Record<string, unknown>): Slots {
   const str = (k: string) => (typeof a[k] === 'string' ? (a[k] as string).trim() : '')
   if (str('name')) s.name = str('name').slice(0, 60)
   if (str('text')) s.text = str('text').slice(0, 2000)
+  if (str('query') && !s.text) s.text = str('query').slice(0, 80)
   if (str('code')) s.code = str('code').split('/').pop()
   if (str('server')) { const hit = w.servers.find((x) => x.name.toLowerCase() === str('server').toLowerCase()) || findEntity(str('server'), w.servers, (x) => [x.name], 0.8)?.item; if (hit) s.serverId = hit.id }
   if (str('channel')) {
@@ -405,6 +408,16 @@ async function findPeople(names: string[]): Promise<{ found: string[]; missing: 
  * Executa um pedido. Devolve a frase que ela fala.
  * Com `quiet` (a IA já falou), só devolve frase quando algo deu errado (prefixo "!").
  */
+
+const pickOne = <T,>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)]
+/** "prisma manda um gif do bolsonaro aqui" → "bolsonaro" */
+function gifQuery(text: string): string {
+  const t = text.replace(/@prisma\b/gi, ' ')
+  const m = /\bgifs?\b\s*(?:engra[cç]ad[oa]\s+)?(?:de|do|da|dos|das|com|sobre)?\s+(.+)$/i.exec(t)
+  const q = (m ? m[1] : '').replace(/\b(aqui|a[ií]|nesse grupo|neste grupo|nesse canal|no chat|pfv|por favor|pra mim|pra gente)\b/gi, ' ').replace(/[?!.]+$/g, '').replace(/\s+/g, ' ').trim()
+  return q || (/\bengra[cç]ad/i.test(t) ? 'engraçado' : '')
+}
+
 export async function act(intent: Intent, slots: Slots, raw: string, opts: { quiet?: boolean } = {}): Promise<string> {
   const s = get()
   const fail = (t: string) => (opts.quiet ? `!${t}` : t)
@@ -569,8 +582,32 @@ export async function act(intent: Intent, slots: Slots, raw: string, opts: { qui
     }
 
     // ---------------- mensagens
+    case 'send_gif': {
+      const q = (slots.text || gifQuery(raw)).trim()
+      if (!q) return ask(intent, slots, raw, 'text', 'Gif de quê?')
+      const found = await searchGifs(q)
+      if (found === 'off') return fail('A busca de GIFs ainda não foi ligada no servidor.')
+      if (found === 'error' || !found.gifs.length) return fail(`Não achei gif de "${q}".`)
+      // um dos primeiros resultados (os mais certeiros), variando um pouco se pedirem de novo
+      const g = found.gifs[Math.floor(Math.random() * Math.min(3, found.gifs.length))]
+      const dest = slots.userId ? null : s.channels.find((c) => c.id === (slots.channelId || s.nav.channelId) && c.kind !== 'voice')
+      if (slots.userId) {
+        const uid = slots.userId
+        await visit(sel('home'), () => openDm(uid))
+        const ch = get().nav.channelId
+        if (!ch) return fail(say.netError())
+        await visit(sel('composer'), () => sendMessage(ch, g.url))
+        return done(`Gif de ${q} no privado do ${nameOf(uid)}.`)
+      }
+      if (!dest) return fail('Abre um canal ou me fala onde mandar.')
+      const ok = await visit(dest.id === s.nav.channelId ? sel('composer') : sel(`channel-${dest.id}`), () => sendMessage(dest.id, g.url))
+      return ok ? done(pickOne([`Toma teu gif de ${q}.`, `Gif de ${q} na área.`, `Saindo um gif de ${q}.`])) : fail('Não consegui mandar.')
+    }
     case 'send_message': {
       if (!slots.text) return ask(intent, slots, raw, 'text', say.askMessage())
+      // "manda um gif de X" que caiu como mensagem, ou link de gif inventado: busca um gif de verdade
+      const gifAsk = /^\s*(um\s+|uma\s+)?gif\b/i.test(slots.text) || (!!gifUrl(slots.text.trim()) && !raw.includes(slots.text.trim()))
+      if (gifAsk) return act('send_gif', { ...slots, text: gifUrl(slots.text.trim()) ? gifQuery(raw) : gifQuery(slots.text) }, raw)
       const text = slots.text
       if (slots.userId) {
         const uid = slots.userId
@@ -800,7 +837,23 @@ export async function channelMention(channelId: string, content: string) {
   const bot = !!st?.channelBot
   const r = brain.classify(text)
   const talk = ['chat', 'greet', 'thanks', 'how_are_you', 'who_are_you', 'help', 'time_now'].includes(r.intent)
-  const local = !!ruleIntent(text) || (!talk && (r.source === 'memory' || (r.confidence >= 0.4 && r.margin >= 0.12)))
+  const s0 = get()
+  // imagens recentes (fotos e gifs) para ela enxergar: as 3 mais novas das últimas mensagens
+  const recent = (s0.messages[channelId]?.items || []).slice(-25)
+  const images: string[] = []
+  const tag = new Map<string, string>()
+  for (const m of [...recent].reverse().slice(0, 10)) {
+    const urls = [...(m.attachments || []).filter((a) => a.type?.startsWith('image/')).map((a) => a.url), ...(gifUrl(m.content?.trim()) ? [m.content.trim()] : [])]
+    for (const u of urls) if (images.length < 3 && !images.includes(u)) { images.push(u); tag.set(m.id + u, `[imagem ${images.length}]`) }
+  }
+  // pergunta sobre imagem e "que gif é esse" vão para a IA que enxerga; gif só é pedido com verbo de pedido
+  const aboutImage = images.length > 0 && /\b(imagem|foto|print|gif|meme|isso|esse|essa|ve|vê|olha|o que [ée])\b/i.test(text) && !/\b(manda|envia|posta|joga|solta|coloca|bota|quero|me d[aá])\b/i.test(text)
+  const gifWithoutAsk = r.intent === 'send_gif' && !/\b(manda|envia|posta|joga|solta|coloca|bota|quero|me d[aá]|gif d[eoa])\b/i.test(text)
+  // só manda as imagens quando a pergunta é sobre elas ou a própria mensagem tem imagem (gasta menos e usa o modelo de sempre)
+  const own = [...recent].reverse().find((m) => m.author_id === s0.userId && !m.bot)
+  const ownHasImage = !!own && ((own.attachments || []).some((a) => a.type?.startsWith('image/')) || !!gifUrl(own.content?.trim()))
+  if (!aboutImage && !ownHasImage) images.length = 0
+  const local = !aboutImage && !gifWithoutAsk && (!!ruleIntent(text) || (!talk && (r.source === 'memory' || (r.confidence >= 0.4 && r.margin >= 0.12))))
   // pedido que o cérebro local entende, ou sem IA na nuvem/sem chave do canal: fluxo normal, resposta real no canal
   if (local || !st?.groq || !bot) {
     if (!bot) pset({ chatOpen: true })
@@ -810,13 +863,18 @@ export async function channelMention(channelId: string, content: string) {
     return
   }
   const s = get()
-  const history = (s.messages[channelId]?.items || []).slice(-25).map((m) => `${m.bot ? 'Prisma' : s.profiles[m.author_id]?.display_name || 'alguém'}: ${(m.content || '[anexo]').slice(0, 300)}`).join('\n')
+  const history = recent.map((m) => {
+    const imgs = [...(m.attachments || []).filter((a) => a.type?.startsWith('image/')).map((a) => tag.get(m.id + a.url) || '[imagem antiga]'), ...(gifUrl(m.content?.trim()) ? [tag.get(m.id + m.content.trim()) || '[gif antigo]'] : [])]
+    const body = gifUrl(m.content?.trim()) ? '' : (m.content || '')
+    const files = (m.attachments || []).filter((a) => !a.type?.startsWith('image/')).map((a) => `[arquivo ${a.name}]`)
+    return `${m.bot ? 'Prisma' : s.profiles[m.author_id]?.display_name || 'alguém'}: ${[body.slice(0, 300), ...imgs, ...files].filter(Boolean).join(' ') || '[mensagem vazia]'}`
+  }).join('\n')
   pset({ mood: 'thinking' })
   try {
     const { data } = await supabase.auth.getSession()
     const res = await fetch('/api/prisma', {
       method: 'POST', headers: { authorization: `Bearer ${data.session?.access_token || ''}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: 'channel', channelId, text, asker: `${me().display_name} (@${me().username})`, context: contextText(), messages: history }),
+      body: JSON.stringify({ mode: 'channel', channelId, text, asker: `${me().display_name} (@${me().username})`, context: contextText(), messages: history, images }),
     })
     if (res.status === 429) return toast(say.limit(), 'error')
     if (!res.ok) return toast('A Prisma não conseguiu responder no canal agora.', 'error')

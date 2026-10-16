@@ -16,7 +16,7 @@ export async function GET(request: Request) {
       const p = new URLSearchParams({ key: tenor, client_key: 'krata', limit: '30', media_filter: 'gif,tinygif', locale: 'pt_BR', country: 'BR', contentfilter: 'medium' })
       if (q) p.set('q', q)
       if (pos) p.set('pos', pos)
-      const r = await fetch(`https://tenor.googleapis.com/v2/${q ? 'search' : 'featured'}?${p}`)
+      const r = await fetch(`${(env('TENOR_BASE_URL') || 'https://tenor.googleapis.com').replace(/\/+$/, '')}/v2/${q ? 'search' : 'featured'}?${p}`)
       if (!r.ok) return json(502, { error: 'tenor', status: r.status })
       const d = (await r.json()) as { next?: string; results?: { id: string; content_description?: string; media_formats: Record<string, { url: string; dims: [number, number] }> }[] }
       const gifs: Gif[] = (d.results || []).filter((x) => x.media_formats?.gif).map((x) => ({

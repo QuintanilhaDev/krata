@@ -7,7 +7,7 @@ export const INTENTS = [
   'create_server', 'join_server', 'leave_server', 'delete_server', 'rename_server', 'server_icon', 'invite_link', 'regenerate_invite', 'invite_users',
   'create_channel', 'delete_channel', 'rename_channel', 'set_topic',
   'open_server', 'open_channel', 'open_dm', 'go_home', 'open_friends', 'open_profile',
-  'send_message', 'friend_request', 'accept_friend', 'decline_friend', 'remove_friend', 'online_friends', 'create_group',
+  'send_message', 'send_gif', 'friend_request', 'accept_friend', 'decline_friend', 'remove_friend', 'online_friends', 'create_group',
   'set_display_name', 'set_bio', 'set_status', 'set_custom_status', 'clear_custom_status', 'set_color',
   'change_avatar', 'remove_avatar', 'change_banner', 'whoami',
   'join_voice', 'leave_voice', 'mute', 'unmute', 'deafen', 'undeafen', 'camera_on', 'camera_off', 'share_screen', 'stop_share', 'call_user',
@@ -76,6 +76,10 @@ export const SEED: Record<Intent, string[]> = {
     'manda {T} no {C}', 'fala pro {U} que {T}', 'manda uma mensagem pro {U} dizendo {T}', 'escreve {T} no canal {C}', 'envia {T}', 'manda no chat {T}',
     'avisa o {U} que {T}', 'diz pra {U} {T}', 'manda pro {U} {T}', 'manda mensagem no {C} falando {T}', 'posta no {C} {T}', 'responde {T}', 'escreve no chat {T}',
     'manda um oi pro {U}', 'manda bom dia no {C}', 'fala no geral que {T}',
+  ],
+  send_gif: [
+    'manda um gif de {T}', 'manda gif do {T}', 'manda um gif da {T}', 'posta um gif de {T}', 'joga um gif de {T} aqui', 'manda aquele gif de {T}',
+    'quero um gif de {T}', 'envia um gif de {T}', 'manda um gif engraçado', 'manda um gif aqui', 'gif de {T} pfv', 'coloca um gif de {T}',
   ],
   friend_request: [
     'adiciona o {U}', 'manda pedido de amizade pro {U}', 'adiciona {U} como amigo', 'quero adicionar o usuario {U}', 'envia solicitacao de amizade pra {U}',
