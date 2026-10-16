@@ -1225,3 +1225,28 @@ html, body { overscroll-behavior: none; }
 /* janelas, chamada e chat da Prisma também começam abaixo do aviso de atualização */
 :root[data-update='1'] .modal-backdrop, :root[data-update='1'] .incoming, :root[data-update='1'] .prisma-panel-veil, :root[data-update='1'] .cropper-veil { top: var(--update-h, 76px); }
 :root[data-update='1'] .prisma-chat { max-height: calc(100dvh - var(--update-h, 76px)); }
+
+/* insígnias */
+.profile-handle { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.kbadges { display: inline-flex; align-items: center; gap: 4px; padding: 3px 5px; border-radius: 10px; background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(255, 255, 255, 0.06); }
+.kbadge { position: relative; display: inline-grid; place-items: center; width: 26px; height: 26px; cursor: default; outline: none; border-radius: 7px; transition: transform 0.25s var(--spring); }
+.kbadge svg { overflow: visible; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55)); }
+.kbadge::after { content: ''; position: absolute; inset: 1px; border-radius: 6px; pointer-events: none; background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.55) 50%, transparent 65%); background-size: 260% 100%; background-position: 130% 0; mix-blend-mode: overlay; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); animation: kbadge-shine 4.5s ease-in-out infinite; }
+.kbadge.artist::after { animation-delay: 1.4s; }
+@keyframes kbadge-shine { 0%, 62% { background-position: 130% 0; } 85%, 100% { background-position: -30% 0; } }
+.kbadge:hover, .kbadge:focus-visible { transform: translateY(-2px) scale(1.12) rotate(-4deg); }
+.kbadge.founder:hover svg { filter: drop-shadow(0 0 6px rgba(244, 193, 82, 0.7)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55)); }
+.kbadge.artist:hover svg { filter: drop-shadow(0 0 6px rgba(176, 124, 255, 0.75)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55)); }
+.kbadge-card { position: fixed; z-index: 200; transform: translate(-50%, -100%); pointer-events: none; width: max-content; max-width: 240px; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: linear-gradient(160deg, #1b2622, #0b0f0e); border: 1px solid var(--line-2); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6); animation: pop-in 0.25s var(--spring); text-align: left; }
+.kbadge-card.below { transform: translate(-50%, 0); }
+.kbadge-card.below::after { top: auto; bottom: 100%; border-top-color: transparent; border-bottom-color: #1b2622; }
+.kbadge-card.founder { border-color: rgba(244, 193, 82, 0.45); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(244, 193, 82, 0.12); }
+.kbadge-card.artist { border-color: rgba(176, 124, 255, 0.5); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 24px rgba(176, 124, 255, 0.14); }
+.kbadge-card::after { content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px; border: 6px solid transparent; border-top-color: #0f1513; }
+.kbadge-card-icon { flex: none; display: grid; }
+.kbadge-card-text { display: grid; gap: 2px; }
+.kbadge-card-text strong { color: var(--white); font: 700 13.5px/1.2 var(--display); white-space: nowrap; }
+.kbadge-card.founder .kbadge-card-text strong { color: #ffd889; }
+.kbadge-card.artist .kbadge-card-text strong { color: #dcc4ff; }
+.kbadge-card-text span { font-size: 12px; line-height: 1.35; color: var(--text-2); }
+:root[data-motion='reduced'] .kbadge::after { animation: none; }

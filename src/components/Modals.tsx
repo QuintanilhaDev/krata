@@ -25,6 +25,7 @@ import { UpdateRow } from './AppUpdate'
 import { cropImage } from './Cropper'
 import { PrismaSettings } from './Prisma'
 import { ScreenShareModal } from './Voice'
+import { Badges } from './Badges'
 
 type Of<T extends ModalState['type']> = Extract<ModalState, { type: T }>
 
@@ -358,7 +359,7 @@ function ProfileFace({ p, status }: { p: Pick<Profile, 'id' | 'display_name' | '
       <div className="profile-avatar"><Avatar profile={p} size={92} status={status} /></div>
       <div className="profile-info">
         <h3>{p.display_name || 'Seu nome'}</h3>
-        <span className="muted">@{p.username}</span>
+        <span className="profile-handle"><span className="muted">@{p.username}</span><Badges username={p.username} /></span>
         {p.custom_status && <p className="profile-status">{p.custom_status}</p>}
         {p.bio && <div className="profile-bio"><span className="field-label">Sobre mim</span><Markdown text={p.bio} /></div>}
       </div>
