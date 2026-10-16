@@ -1228,7 +1228,7 @@ html, body { overscroll-behavior: none; }
 
 /* insígnias */
 .profile-handle { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.kbadges { display: inline-flex; align-items: center; gap: 4px; padding: 3px 5px; border-radius: 10px; background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(255, 255, 255, 0.06); }
+.kbadges { display: inline-flex; align-items: center; gap: 4px; }
 .kbadge { position: relative; display: inline-grid; place-items: center; width: 26px; height: 26px; cursor: default; outline: none; border-radius: 7px; transition: transform 0.25s var(--spring); }
 .kbadge svg { overflow: visible; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.55)); }
 .kbadge::after { content: ''; position: absolute; inset: 1px; border-radius: 6px; pointer-events: none; background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.55) 50%, transparent 65%); background-size: 260% 100%; background-position: 130% 0; mix-blend-mode: overlay; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); animation: kbadge-shine 4.5s ease-in-out infinite; }
