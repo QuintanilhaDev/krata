@@ -1240,8 +1240,12 @@ html, body { overscroll-behavior: none; }
 /* ==========================================================================
    LOJA
    ========================================================================== */
-.rail-item.shop .rail-face { background: linear-gradient(150deg, rgba(0, 168, 107, 0.28), rgba(10, 13, 12, 0.9)); color: var(--jade-hi); border: 1px solid rgba(61, 219, 164, 0.35); }
-.rail-item.shop:hover .rail-face { background: linear-gradient(150deg, rgba(0, 168, 107, 0.5), rgba(10, 13, 12, 0.9)); }
+.shop-entry { position: relative; margin-top: 4px; border: 1px solid rgba(61, 219, 164, 0.22); background: linear-gradient(110deg, rgba(0, 168, 107, 0.16), rgba(0, 168, 107, 0.03) 60%, transparent); overflow: hidden; }
+.shop-entry::after { content: ''; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(61, 219, 164, 0.14) 50%, transparent 70%); transform: translateX(-100%); transition: transform 0.7s ease; pointer-events: none; }
+.shop-entry:hover { border-color: rgba(61, 219, 164, 0.45); background: linear-gradient(110deg, rgba(0, 168, 107, 0.26), rgba(0, 168, 107, 0.06) 60%, transparent); }
+.shop-entry:hover::after { transform: translateX(100%); }
+.shop-entry-face { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; flex: none; color: var(--jade-hi); background: linear-gradient(150deg, rgba(0, 168, 107, 0.4), rgba(10, 13, 12, 0.9)); box-shadow: inset 0 0 0 1px rgba(61, 219, 164, 0.4), 0 0 14px rgba(0, 168, 107, 0.25); }
+@media (prefers-reduced-motion: reduce) { .shop-entry::after { display: none; } }
 .tabs .tab svg { vertical-align: -2px; margin-right: 4px; }
 .shop-intro { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
 .shop-intro svg { color: var(--jade-hi); flex: none; }

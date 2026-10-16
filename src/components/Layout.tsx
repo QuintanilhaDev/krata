@@ -67,18 +67,19 @@ export function Rail() {
         ))}
         <button data-prisma="create-server" className="rail-item add" onClick={() => openModal({ type: 'createServer' })} aria-label="Criar um servidor" data-tip="Criar um servidor" data-tip-side="right"><span className="rail-face"><Plus size={22} /></span></button>
         <button data-prisma="join-server" className="rail-item add" onClick={() => openModal({ type: 'joinServer' })} aria-label="Entrar com um convite" data-tip="Entrar com convite" data-tip-side="right"><span className="rail-face"><Compass size={21} /></span></button>
-        <ShopRailButton />
       </div>
     </nav>
   )
 }
 
-function ShopRailButton() {
+/** Entrada da loja na lista de conversas, logo abaixo da Prisma. */
+function ShopEntry() {
   const toReview = useApp((s) => (s.me && s.staff[s.me.username] === 'dev' ? Object.values(s.bundles).filter((b) => b.status === 'pending').length : 0))
   return (
-    <button data-prisma="shop" className="rail-item shop" onClick={() => openModal(toReview ? { type: 'settings', tab: 'dev' } : { type: 'shop' })} aria-label={toReview ? `Loja: ${toReview} bundles para aprovar` : 'Loja'} data-tip={toReview ? `${toReview} para aprovar` : 'Loja'} data-tip-side="right">
-      <span className="rail-face"><ShoppingBag size={21} /></span>
-      {toReview > 0 && <span className="badge">{toReview}</span>}
+    <button data-prisma="shop" className="side-item shop-entry" onClick={() => openModal(toReview ? { type: 'settings', tab: 'dev' } : { type: 'shop' })} aria-label={toReview ? `Loja: ${toReview} bundles para aprovar` : 'Loja'}>
+      <span className="shop-entry-face"><ShoppingBag size={18} /></span>
+      <span className="grow two-line"><strong>Loja</strong><span>{toReview ? `${toReview} ${toReview === 1 ? 'bundle esperando' : 'bundles esperando'} aprovação` : 'Molduras de artistas oficiais'}</span></span>
+      {toReview > 0 && <span className="badge inline">{toReview}</span>}
     </button>
   )
 }
@@ -143,6 +144,7 @@ function HomeSidebar() {
           {pending > 0 && <span className="badge inline">{pending}</span>}
         </button>
         <PrismaEntry />
+        <ShopEntry />
         <div className="side-label">
           <span>Mensagens diretas</span>
           <button className="icon-btn tiny" onClick={() => openModal({ type: 'newDm' })} aria-label="Nova conversa" data-tip="Nova conversa"><Plus size={16} /></button>
