@@ -15,6 +15,8 @@ export interface Profile {
   onboarded: boolean
   created_at: string
   pronoun?: 'ele' | 'ela' | null
+  /** bundle da loja equipado (moldura da foto e do card) */
+  equipped_bundle?: string | null
 }
 export interface Server {
   id: string
@@ -23,7 +25,13 @@ export interface Server {
   owner_id: string
   invite_code: string
   created_at: string
+  description?: string
+  default_notify?: NotifyLevel
+  everyone_role?: 'all' | 'admins'
+  welcome_channel?: string | null
 }
+export type NotifyLevel = 'all' | 'mentions' | 'none'
+export interface NotifyPref { level: NotifyLevel | null; suppress_everyone: boolean }
 export interface Member {
   server_id: string
   user_id: string
@@ -42,6 +50,7 @@ export interface Channel {
   owner_id: string | null
   last_message_at: string | null
   created_at: string
+  slowmode?: number
 }
 export interface Attachment {
   url: string
@@ -66,7 +75,7 @@ export interface Message {
   edited_at: string | null
   created_at: string
   reactions: Reaction[]
-  bot?: 'prisma' | null
+  bot?: 'prisma' | 'welcome' | null
   pending?: boolean
   failed?: boolean
 }
@@ -88,3 +97,22 @@ export interface DmMember {
   channel_id: string
   user_id: string
 }
+
+export type BundleStatus = 'pending' | 'approved' | 'rejected' | 'archived'
+export interface Bundle {
+  id: string
+  artist_id: string
+  name: string
+  description: string
+  avatar_frame: string
+  card_frame: string
+  asked_cents: number
+  price_cents: number
+  status: BundleStatus
+  review_note: string
+  reviewed_at: string | null
+  sales: number
+  created_at: string
+  updated_at: string
+}
+export type StaffRole = 'dev' | 'artist'

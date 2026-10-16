@@ -55,7 +55,28 @@ export function iceServers(): RTCIceServer[] {
   ]
   const urls = (env.VITE_TURN_URLS || '').split(',').map((s: string) => s.trim()).filter(Boolean)
   if (urls.length) list.push({ urls, username: env.VITE_TURN_USERNAME || '', credential: env.VITE_TURN_CREDENTIAL || '' })
+  if (turnCache && Date.now() < turnCache.until) list.push(...turnCache.servers)
   return list
+}
+
+let turnCache: { until: number; servers: RTCIceServer[] } | null = null
+let turnLoading: Promise<void> | null = null
+/** Busca credenciais TURN no servidor (/api/turn). Espera no máximo `waitMs` para não atrasar a entrada na chamada. */
+export async function loadTurn(waitMs = 1500): Promise<void> {
+  if (turnCache && Date.now() < turnCache.until) return
+  if (!turnLoading) {
+    turnLoading = (async () => {
+      try {
+        const token = (await supabase.auth.getSession()).data.session?.access_token
+        if (!token) return
+        const r = await fetch('/api/turn', { headers: { authorization: `Bearer ${token}` } })
+        if (!r.ok) return
+        const d = (await r.json()) as { iceServers?: RTCIceServer[]; ttl?: number }
+        turnCache = { servers: d.iceServers || [], until: Date.now() + Math.max(60, d.ttl || 600) * 1000 }
+      } catch { /* sem TURN: segue só com STUN */ }
+    })().finally(() => { turnLoading = null })
+  }
+  await Promise.race([turnLoading, new Promise((r) => setTimeout(r, waitMs))])
 }
 
 /** Traduz erros do Supabase para mensagens que dizem o que fazer. */

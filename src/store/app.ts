@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
-import type { Channel, CustomEmoji, DmMember, Friendship, Member, Message, Profile, Role, Server, Status } from '../lib/types'
+import type { Bundle, NotifyPref, StaffRole, Channel, CustomEmoji, DmMember, Friendship, Member, Message, Profile, Role, Server, Status } from '../lib/types'
 
 export interface Nav { serverId: string | null; channelId: string | null }
 export interface MsgList { items: Message[]; hasMore: boolean; loaded: boolean; loading: boolean }
@@ -21,6 +21,7 @@ export type ModalState =
   | { type: 'image'; url: string; name: string }
   | { type: 'pins'; channelId: string }
   | { type: 'search'; channelId: string; query?: string }
+  | { type: 'shop'; tab?: 'loja' | 'inventario' }
   | { type: 'confirm'; title: string; text: string; action: string; danger?: boolean; onConfirm: () => void | Promise<void> }
 
 export interface AppState {
@@ -51,6 +52,12 @@ export interface AppState {
   editing: string | null
   connection: 'ok' | 'reconnecting'
   structureLoaded: boolean
+  /** loja: bundles visíveis (aprovados, arquivados e os meus) */
+  bundles: Record<string, Bundle>
+  /** equipe oficial: nome de usuário → cargo */
+  staff: Record<string, StaffRole>
+  /** o que cada servidor me avisa */
+  notifyPrefs: Record<string, NotifyPref>
 }
 
 export const initialState: AppState = {
@@ -81,6 +88,9 @@ export const initialState: AppState = {
   editing: null,
   connection: 'ok',
   structureLoaded: false,
+  bundles: {},
+  staff: {},
+  notifyPrefs: {},
 }
 
 export const useApp = create<AppState>(() => ({ ...initialState }))
@@ -91,6 +101,7 @@ export function useDirectory(): AppState {
   return useApp(useShallow((s) => ({
     userId: s.userId, me: s.me, profiles: s.profiles, servers: s.servers, channels: s.channels, members: s.members,
     roles: s.roles, dmMembers: s.dmMembers, friends: s.friends, unread: s.unread, online: s.online, nav: s.nav, homeTab: s.homeTab,
+    bundles: s.bundles, staff: s.staff, notifyPrefs: s.notifyPrefs,
   }))) as AppState
 }
 export const get = useApp.getState
@@ -126,6 +137,14 @@ export function myRole(s: AppState, serverId: string | null) {
   if (!serverId) return null
   return s.roles[serverId] ?? null
 }
+export const isDevUser = (s: AppState) => !!s.me && s.staff[s.me.username] === 'dev'
+export const isArtistUser = (s: AppState) => !!s.me && s.staff[s.me.username] === 'artist'
+/** Molduras equipadas de alguém (só se o bundle estiver carregado). */
+export function framesOf(s: AppState, p: Profile | undefined | null): Bundle | null {
+  const id = p?.equipped_bundle
+  return id ? s.bundles[id] || null : null
+}
+
 export function friendIds(s: AppState): string[] {
   return s.friends.filter((f) => f.status === 'accepted').map((f) => (f.requester_id === s.userId ? f.addressee_id : f.requester_id))
 }

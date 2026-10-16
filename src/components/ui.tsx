@@ -26,8 +26,10 @@ export function StatusDot({ status }: { status: Status | 'offline' }) {
 }
 
 interface AvatarProps {
-  profile?: Pick<Profile, 'id' | 'display_name' | 'avatar_url'> | null
+  profile?: (Pick<Profile, 'id' | 'display_name' | 'avatar_url'> & { equipped_bundle?: string | null }) | null
   url?: string | null
+  /** moldura de um bundle mostrada no lugar da equipada (prévia da loja); null tira */
+  frame?: string | null
   name?: string
   seed?: string
   size?: number
@@ -35,16 +37,27 @@ interface AvatarProps {
   speaking?: boolean
   square?: boolean
 }
-export function Avatar({ profile, url, name, seed, size = 40, status, speaking, square }: AvatarProps) {
+export function Avatar({ profile, url, name, seed, size = 40, status, speaking, square, frame }: AvatarProps) {
   const label = name ?? profile?.display_name ?? '?'
   const src = safeMediaUrl(url ?? profile?.avatar_url)
+  const equipped = useApp((s) => (frame === undefined && size >= 24 && profile?.equipped_bundle ? s.bundles[profile.equipped_bundle]?.avatar_frame : undefined))
+  const frameSrc = safeMediaUrl(frame === undefined ? equipped : frame)
   const style: CSSProperties = { width: size, height: size, fontSize: Math.max(10, size * 0.38), ['--h' as string]: hueFor(seed ?? profile?.id ?? label) }
   return (
-    <span className={`avatar${square ? ' square' : ''}${speaking ? ' speaking' : ''}`} style={style}>
+    <span className={`avatar${square ? ' square' : ''}${speaking ? ' speaking' : ''}${frameSrc ? ' framed' : ''}`} style={style}>
       {src ? <img src={src} alt="" draggable={false} loading="lazy" /> : <span className="avatar-fallback" aria-hidden="true">{initials(label)}</span>}
+      {frameSrc && <img className="avatar-frame" src={frameSrc} alt="" draggable={false} loading="lazy" />}
       {status && <StatusDot status={status} />}
     </span>
   )
+}
+
+/** Moldura do card de perfil (9 fatias: os cantos ficam intactos e as bordas esticam com a altura do card). */
+export function CardFrame({ bundleId, src }: { bundleId?: string | null; src?: string | null }) {
+  const equipped = useApp((s) => (src === undefined && bundleId ? s.bundles[bundleId]?.card_frame : undefined))
+  const url = safeMediaUrl(src === undefined ? equipped : src)
+  if (!url) return null
+  return <span className="card-frame" aria-hidden="true" style={{ borderImageSource: `url("${url}")` }} />
 }
 
 export function Modal({ title, onClose, children, wide, bare, label }: { title?: string; onClose: () => void; children: ReactNode; wide?: boolean; bare?: boolean; label?: string }) {

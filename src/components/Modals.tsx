@@ -1,6 +1,6 @@
 import {
   Camera, Check, Copy, Crown, Download, Hash, ImagePlus, LogOut, MessageCircle, Phone, RefreshCw, Search, Shield, Trash2, UserMinus,
-  UserRoundPlus, Users, Volume2,
+  UserRoundPlus, Users, Volume2, Paintbrush, ShieldCheck, ZoomIn, ZoomOut,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { errorText, safeMediaUrl, supabase } from '../lib/supabase'
@@ -15,7 +15,7 @@ import {
 import { channelTitle, closeModal, friendIds, openModal, presenceOf, toast, useApp, useDirectory, type ModalState } from '../store/app'
 import { joinVoice, reloadMic, saveVoiceSettings, voiceSettings } from '../voice/engine'
 import { Markdown, plain } from './Markdown'
-import { Avatar, ErrorBoundary, Field, Modal, STATUS_LABEL, Spinner, Tilt } from './ui'
+import { Avatar, CardFrame, ErrorBoundary, Field, Modal, STATUS_LABEL, Spinner, Tilt } from './ui'
 import { PasswordInput, Strength, passwordError } from './Auth'
 import { motionLevel, setMotion } from '../lib/motion'
 import { perfChoice, setPerfChoice, type PerfChoice } from '../lib/perf'
@@ -25,6 +25,7 @@ import { UpdateRow } from './AppUpdate'
 import { cropImage } from './Cropper'
 import { PrismaSettings } from './Prisma'
 import { ScreenShareModal } from './Voice'
+import { ArtistPanel, DevPanel, Inventory, ShopModal } from './Shop'
 import { Badges } from './Badges'
 
 type Of<T extends ModalState['type']> = Extract<ModalState, { type: T }>
@@ -223,8 +224,11 @@ function ServerSettings({ serverId }: Of<'serverSettings'>) {
   const emojis = useApp((s) => s.emojis)
   const role = useApp((s) => s.roles[serverId])
   const uid = useApp((s) => s.userId)
-  const [tab, setTab] = useState<'geral' | 'pessoas' | 'emojis' | 'convite'>('geral')
+  const [tab, setTab] = useState<'geral' | 'avisos' | 'pessoas' | 'emojis' | 'convite'>('geral')
   const [name, setName] = useState(server?.name || '')
+  const [desc, setDesc] = useState(server?.description || '')
+  const allChannels = useApp((s) => s.channels)
+  const textChannels = useMemo(() => allChannels.filter((c) => c.server_id === serverId && c.kind === 'text'), [allChannels, serverId])
   const [icon, setIcon] = useState(server?.icon_url ?? null)
   const [emojiName, setEmojiName] = useState('')
   const [busy, setBusy] = useState(false)
@@ -233,12 +237,13 @@ function ServerSettings({ serverId }: Of<'serverSettings'>) {
   if (!server) return null
   const owner = role === 'owner'
   const list = Object.values(emojis).filter((e) => e.server_id === serverId)
-  const dirty = name.trim() !== server.name || icon !== server.icon_url
+  const dirty = name.trim() !== server.name || icon !== server.icon_url || desc.trim() !== (server.description || '')
+  const savePart = async (patch: Parameters<typeof updateServer>[1]) => { if (await updateServer(serverId, patch)) toast('Salvo', 'ok') }
   return (
     <Modal title={`Configurações de ${server.name}`} onClose={closeModal} wide>
       <div className="tabs pad" role="tablist">
-        {(['geral', 'pessoas', 'emojis', 'convite'] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={`tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>{{ geral: 'Visão geral', pessoas: 'Pessoas', emojis: 'Emojis', convite: 'Convite' }[t]}</button>
+        {(['geral', 'avisos', 'pessoas', 'emojis', 'convite'] as const).map((t) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={`tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>{{ geral: 'Visão geral', avisos: 'Avisos e menções', pessoas: 'Pessoas', emojis: 'Emojis', convite: 'Convite' }[t]}</button>
         ))}
       </div>
       <div className="modal-body tall">
@@ -246,13 +251,41 @@ function ServerSettings({ serverId }: Of<'serverSettings'>) {
           <>
             <ImagePick url={icon} name={name} seed={server.id} square onChange={setIcon} label="Trocar ícone do servidor" />
             <Field label="Nome do servidor"><input className="input" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} /></Field>
-            <button className="btn primary" disabled={!dirty || !name.trim() || busy} onClick={async () => { setBusy(true); if (await updateServer(serverId, { name: name.trim(), icon_url: icon })) toast('Servidor atualizado', 'ok'); setBusy(false) }}>Salvar alterações</button>
+            <Field label="Descrição" hint="Aparece no convite e no topo da lista de canais."><textarea className="input" rows={3} maxLength={300} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Do que é este servidor?" /></Field>
+            <button className="btn primary" disabled={!dirty || !name.trim() || busy} onClick={async () => { setBusy(true); if (await updateServer(serverId, { name: name.trim(), icon_url: icon, description: desc.trim() })) toast('Servidor atualizado', 'ok'); setBusy(false) }}>Salvar alterações</button>
             {owner && (
               <div className="danger-zone">
                 <div><strong>Apagar servidor</strong><p className="muted">Apaga canais, mensagens e emojis para todo mundo. Não dá para desfazer.</p></div>
                 <button className="btn danger" onClick={() => openModal({ type: 'confirm', title: `Apagar ${server.name}`, text: 'Todos os canais e mensagens somem para todo mundo. Não dá para desfazer.', action: 'Apagar servidor', danger: true, onConfirm: () => deleteServer(serverId) })}><Trash2 size={16} /> Apagar servidor</button>
               </div>
             )}
+          </>
+        )}
+        {tab === 'avisos' && (
+          <>
+            <fieldset className="choice">
+              <legend>Notificações padrão para quem entra</legend>
+              <div className="seg">
+                {([['all', 'Todas as mensagens'], ['mentions', 'Só menções'], ['none', 'Nada']] as const).map(([v, t]) => (
+                  <button key={v} type="button" aria-pressed={(server.default_notify || 'mentions') === v} className={(server.default_notify || 'mentions') === v ? 'on' : ''} onClick={() => void savePart({ default_notify: v })}>{t}</button>
+                ))}
+              </div>
+              <p className="fine">Cada pessoa ainda pode mudar só para ela (botão direito no ícone do servidor).</p>
+            </fieldset>
+            <fieldset className="choice">
+              <legend>Quem pode usar @everyone e @here</legend>
+              <div className="seg two">
+                <button type="button" aria-pressed={(server.everyone_role || 'admins') === 'admins'} className={(server.everyone_role || 'admins') === 'admins' ? 'on' : ''} onClick={() => void savePart({ everyone_role: 'admins' })}><strong>Só donos e admins</strong><span>Recomendado</span></button>
+                <button type="button" aria-pressed={server.everyone_role === 'all'} className={server.everyone_role === 'all' ? 'on' : ''} onClick={() => void savePart({ everyone_role: 'all' })}><strong>Todo mundo</strong><span>Qualquer membro chama todos</span></button>
+              </div>
+              <p className="fine">@everyone avisa todo mundo do servidor; @here avisa só quem está online agora.</p>
+            </fieldset>
+            <Field label="Mensagem de boas-vindas" hint="Quando alguém entra, o Krata avisa neste canal.">
+              <select className="input" value={server.welcome_channel || ''} onChange={(e) => void savePart({ welcome_channel: e.target.value || null })}>
+                <option value="">Desligada</option>
+                {textChannels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
+              </select>
+            </Field>
           </>
         )}
         {tab === 'pessoas' && (!members ? <Spinner /> : (
@@ -320,10 +353,12 @@ function ChannelModal({ serverId, channel, kind: initialKind, category: initialC
   const [name, setName] = useState(channel?.name || '')
   const [topic, setTopic] = useState(channel?.topic || '')
   const [category, setCategory] = useState(channel?.category ?? initialCategory ?? '')
+  const [slow, setSlow] = useState(channel?.slowmode ?? 0)
   const [busy, setBusy] = useState(false)
+  const SLOW = [[0, 'Desligado'], [5, '5 s'], [10, '10 s'], [30, '30 s'], [60, '1 min'], [300, '5 min'], [900, '15 min'], [3600, '1 h']] as const
   return (
     <Modal title={channel ? 'Editar canal' : 'Criar canal'} onClose={closeModal}>
-      <form onSubmit={async (e) => { e.preventDefault(); if (busy) return; setBusy(true); if (await saveChannel(serverId, channel, { name, topic, category, kind })) closeModal(); setBusy(false) }}>
+      <form onSubmit={async (e) => { e.preventDefault(); if (busy) return; setBusy(true); if (await saveChannel(serverId, channel, { name, topic, category, kind, slowmode: kind === 'text' ? slow : undefined })) closeModal(); setBusy(false) }}>
         <div className="modal-body">
           {!channel && (
             <fieldset className="choice">
@@ -334,7 +369,12 @@ function ChannelModal({ serverId, channel, kind: initialKind, category: initialC
               </div>
             </fieldset>
           )}
-          <Field label="Nome do canal"><input className="input" value={name} maxLength={60} autoFocus placeholder={kind === 'text' ? 'novo-canal' : 'Nova sala'} onChange={(e) => setName(e.target.value)} /></Field>
+          <Field label="Nome do canal" hint="Pode usar espaços, acentos e emojis (até 50 caracteres)."><input className="input" value={name} maxLength={60} autoFocus placeholder={kind === 'text' ? 'Bate-papo geral 💬' : 'Sala da galera 🎮'} onChange={(e) => setName(e.target.value)} /></Field>
+          {kind === 'text' && (
+            <Field label="Modo lento" hint="Cada pessoa espera esse tempo entre uma mensagem e outra (donos e admins não esperam).">
+              <select className="input" value={slow} onChange={(e) => setSlow(Number(e.target.value))}>{SLOW.map(([v, t]) => <option key={v} value={v}>{t}</option>)}</select>
+            </Field>
+          )}
           {kind === 'text' && <Field label="Assunto" hint="Aparece no topo do canal. Opcional."><input className="input" value={topic} maxLength={200} onChange={(e) => setTopic(e.target.value)} /></Field>}
           <Field label="Categoria" hint="Canais com a mesma categoria ficam agrupados."><input className="input" value={category} maxLength={40} placeholder={kind === 'text' ? 'Canais de texto' : 'Canais de voz'} onChange={(e) => setCategory(e.target.value)} /></Field>
         </div>
@@ -352,7 +392,7 @@ function ChannelModal({ serverId, channel, kind: initialKind, category: initialC
 // ============================================================ perfil
 const COLORS = ['#00A86B', '#3DDBA4', '#2BB8C9', '#4C8DF6', '#9B7BFF', '#E35BC2', '#F0565B', '#F2A33B', '#F5F8F6']
 
-function ProfileFace({ p, status }: { p: Pick<Profile, 'id' | 'display_name' | 'username' | 'avatar_url' | 'banner_url' | 'accent_color' | 'bio' | 'custom_status'>; status?: ReturnType<typeof presenceOf> }) {
+function ProfileFace({ p, status }: { p: Pick<Profile, 'id' | 'display_name' | 'username' | 'avatar_url' | 'banner_url' | 'accent_color' | 'bio' | 'custom_status' | 'equipped_bundle'>; status?: ReturnType<typeof presenceOf> }) {
   return (
     <div className="profile-face" style={{ ['--accent' as string]: p.accent_color }}>
       <div className="profile-banner" style={safeMediaUrl(p.banner_url) ? { backgroundImage: `url("${safeMediaUrl(p.banner_url)}")` } : undefined} />
@@ -378,11 +418,14 @@ function ProfileCard({ userId }: Of<'profile'>) {
     <Modal onClose={closeModal} bare label={`Perfil de ${p.display_name}`}>
       <Tilt className="profile-card" max={6}>
         <ProfileFace p={p} status={status} />
+        <CardFrame bundleId={p.equipped_bundle} />
         <div className="profile-meta">
           <span>{STATUS_LABEL[status]}</span>
           <span>No Krata desde {new Date(p.created_at).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</span>
         </div>
         <div className="profile-actions">
+          {me && state.staff[p.username] === 'artist' && <button className="btn ghost block" onClick={() => openModal({ type: 'settings', tab: 'artista' })}><Paintbrush size={16} /> Painel da artista</button>}
+          {me && state.staff[p.username] === 'dev' && <button className="btn ghost block" onClick={() => openModal({ type: 'settings', tab: 'dev' })}><ShieldCheck size={16} /> Painel do desenvolvedor</button>}
           {me ? <button className="btn primary block" onClick={() => openModal({ type: 'settings' })}>Editar perfil</button> : (
             <>
               <button className="btn primary" onClick={() => void openDm(userId)}><MessageCircle size={16} /> Mensagem</button>
@@ -400,8 +443,10 @@ function ProfileCard({ userId }: Of<'profile'>) {
 
 function Settings({ tab: initialTab }: Of<'settings'>) {
   const me = useApp((s) => s.me)!
-  const [tab, setTab] = useState<'perfil' | 'voz' | 'avisos' | 'visual' | 'prisma' | 'app' | 'conta'>(
-    (['perfil', 'voz', 'avisos', 'visual', 'prisma', 'app', 'conta'].includes(initialTab || '') ? initialTab : 'perfil') as 'perfil')
+  const staffRole = useApp((s) => (s.me ? s.staff[s.me.username] : undefined))
+  type Tab = 'perfil' | 'voz' | 'avisos' | 'visual' | 'prisma' | 'app' | 'conta' | 'inventario' | 'artista' | 'dev'
+  const tabs: Tab[] = ['perfil', 'inventario', ...(staffRole === 'artist' ? ['artista' as const] : []), ...(staffRole === 'dev' ? ['dev' as const] : []), 'prisma', 'voz', 'avisos', 'visual', 'app', 'conta']
+  const [tab, setTab] = useState<Tab>((['perfil', 'voz', 'avisos', 'visual', 'prisma', 'app', 'conta', 'inventario', 'artista', 'dev'].includes(initialTab || '') ? initialTab : 'perfil') as Tab)
   const [motion, setMotionState] = useState(motionLevel())
   const [perf, setPerfState] = useState<PerfChoice>(perfChoice())
   const [f, setF] = useState({ display_name: me.display_name, bio: me.bio, avatar_url: me.avatar_url, banner_url: me.banner_url, accent_color: me.accent_color, pronoun: me.pronoun ?? null })
@@ -439,11 +484,14 @@ function Settings({ tab: initialTab }: Of<'settings'>) {
   return (
     <Modal title="Configurações" onClose={closeModal} wide>
       <div className="tabs pad" role="tablist">
-        {(['perfil', 'prisma', 'voz', 'avisos', 'visual', 'app', 'conta'] as const).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={`tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>{{ perfil: 'Perfil', prisma: 'Prisma', voz: 'Voz e vídeo', avisos: 'Avisos', visual: 'Visual', app: 'App Android', conta: 'Conta' }[t]}</button>
+        {tabs.map((t) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={`tab${tab === t ? ' on' : ''}`} onClick={() => setTab(t)}>{{ perfil: 'Perfil', inventario: 'Inventário', artista: 'Painel da artista', dev: 'Desenvolvedor', prisma: 'Prisma', voz: 'Voz e vídeo', avisos: 'Avisos', visual: 'Visual', app: 'App Android', conta: 'Conta' }[t]}</button>
         ))}
       </div>
       <div className="modal-body tall">
+        {tab === 'inventario' && <Inventory />}
+        {tab === 'artista' && staffRole === 'artist' && <ArtistPanel />}
+        {tab === 'dev' && staffRole === 'dev' && <DevPanel />}
         {tab === 'perfil' && (
           <div className="settings-profile">
             <div className="settings-form">
@@ -478,7 +526,7 @@ function Settings({ tab: initialTab }: Of<'settings'>) {
             </div>
             <div className="settings-preview">
               <span className="field-label">Prévia</span>
-              <Tilt className="profile-card" max={7}><ProfileFace p={{ ...me, ...f }} /></Tilt>
+              <Tilt className="profile-card" max={7}><ProfileFace p={{ ...me, ...f }} /><CardFrame bundleId={me.equipped_bundle} /></Tilt>
             </div>
           </div>
         )}
@@ -676,11 +724,77 @@ function SearchModal({ channelId, query }: Of<'search'>) {
 }
 
 function ImageViewer({ url, name }: Of<'image'>) {
+  // zoom: roda do mouse, duplo clique/toque, pinça com dois dedos e arrastar para mover
+  const [z, setZ] = useState({ s: 1, x: 0, y: 0 })
+  const zr = useRef(z); zr.current = z
+  const box = useRef<HTMLDivElement>(null)
+  const pts = useRef(new Map<number, { x: number; y: number }>())
+  const last = useRef<{ d: number; x: number; y: number; s: number; ox: number; oy: number } | null>(null)
+  const tap = useRef(0)
+  const clamp = (n: { s: number; x: number; y: number }) => {
+    const s = Math.min(8, Math.max(1, n.s))
+    if (s === 1) return { s, x: 0, y: 0 }
+    const r = box.current?.getBoundingClientRect()
+    const mx = r ? (r.width * (s - 1)) / 2 : 9999, my = r ? (r.height * (s - 1)) / 2 : 9999
+    return { s, x: Math.max(-mx, Math.min(mx, n.x)), y: Math.max(-my, Math.min(my, n.y)) }
+  }
+  /** amplia mantendo o ponto (cx, cy) da tela no mesmo lugar */
+  const zoomAt = (factor: number, cx: number, cy: number) => {
+    const r = box.current?.getBoundingClientRect()
+    const c = zr.current
+    if (!r) return
+    const px = cx - (r.left + r.width / 2), py = cy - (r.top + r.height / 2)
+    const s = Math.min(8, Math.max(1, c.s * factor)), k = s / c.s
+    setZ(clamp({ s, x: px - (px - c.x) * k, y: py - (py - c.y) * k }))
+  }
+  useEffect(() => {
+    const el = box.current
+    if (!el) return
+    const wheel = (e: WheelEvent) => { e.preventDefault(); zoomAt(Math.exp(-e.deltaY * 0.0022), e.clientX, e.clientY) }
+    el.addEventListener('wheel', wheel, { passive: false })
+    return () => el.removeEventListener('wheel', wheel)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const down = (e: React.PointerEvent) => {
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    pts.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    const p = [...pts.current.values()]
+    const cx = p.reduce((a, b) => a + b.x, 0) / p.length, cy = p.reduce((a, b) => a + b.y, 0) / p.length
+    last.current = { d: p.length > 1 ? Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) : 0, x: cx, y: cy, s: zr.current.s, ox: zr.current.x, oy: zr.current.y }
+    if (p.length === 1) {
+      const now = Date.now()
+      if (now - tap.current < 300) { tap.current = 0; if (zr.current.s > 1) setZ({ s: 1, x: 0, y: 0 }); else zoomAt(2.5, e.clientX, e.clientY) }
+      else tap.current = now
+    }
+  }
+  const move = (e: React.PointerEvent) => {
+    if (!pts.current.has(e.pointerId) || !last.current) return
+    pts.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    const p = [...pts.current.values()], L = last.current
+    const cx = p.reduce((a, b) => a + b.x, 0) / p.length, cy = p.reduce((a, b) => a + b.y, 0) / p.length
+    if (p.length > 1 && L.d > 0) {
+      const d = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y)
+      setZ(clamp({ s: L.s * (d / L.d), x: L.ox + (cx - L.x), y: L.oy + (cy - L.y) }))
+    } else if (zr.current.s > 1) setZ(clamp({ s: zr.current.s, x: L.ox + (cx - L.x), y: L.oy + (cy - L.y) }))
+  }
+  const up = (e: React.PointerEvent) => {
+    pts.current.delete(e.pointerId)
+    const p = [...pts.current.values()]
+    last.current = p.length ? { d: 0, x: p[0].x, y: p[0].y, s: zr.current.s, ox: zr.current.x, oy: zr.current.y } : null
+  }
+  const zoomed = z.s > 1.01
   return (
     <Modal onClose={closeModal} bare label={`Imagem ${name}`}>
       <div className="viewer">
-        <img src={url} alt={name} />
-        <a className="btn ghost small" href={url} target="_blank" rel="noopener noreferrer" download={name}><Download size={15} /> Abrir original</a>
+        <div ref={box} className={`viewer-stage${zoomed ? ' zoomed' : ''}`} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
+          <img src={url} alt={name} draggable={false} style={{ transform: `translate(${z.x}px, ${z.y}px) scale(${z.s})` }} />
+        </div>
+        <div className="viewer-bar">
+          <button className="icon-btn" aria-label="Diminuir zoom" onClick={() => { const r = box.current!.getBoundingClientRect(); zoomAt(1 / 1.5, r.left + r.width / 2, r.top + r.height / 2) }} disabled={!zoomed}><ZoomOut size={17} /></button>
+          <button className="viewer-pct" onClick={() => setZ({ s: 1, x: 0, y: 0 })} aria-label="Tamanho original">{Math.round(z.s * 100)}%</button>
+          <button className="icon-btn" aria-label="Aumentar zoom" onClick={() => { const r = box.current!.getBoundingClientRect(); zoomAt(1.5, r.left + r.width / 2, r.top + r.height / 2) }} disabled={z.s >= 8}><ZoomIn size={17} /></button>
+          <a className="btn ghost small" href={url} target="_blank" rel="noopener noreferrer" download={name}><Download size={15} /> Abrir original</a>
+        </div>
       </div>
     </Modal>
   )
@@ -735,6 +849,7 @@ function ModalView({ modal }: { modal: ModalState }) {
     case 'image': return <ImageViewer {...modal} />
     case 'pins': return <Pins {...modal} />
     case 'search': return <SearchModal {...modal} />
+    case 'shop': return <ShopModal {...modal} />
     case 'confirm': return <Confirm {...modal} />
   }
 }

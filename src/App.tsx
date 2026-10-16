@@ -12,7 +12,7 @@ import { applyMotion } from './lib/motion'
 import { watchSmoothness } from './lib/perf'
 import { useSwipeNav } from './lib/swipe'
 import { APP_VERSION } from './lib/native'
-import { isConfigured } from './lib/supabase'
+import { isConfigured, supabase } from './lib/supabase'
 import { boot, navigate } from './store/actions'
 import { registerDevice } from './lib/appNotify'
 import { desktopOn, registerWorker, syncPush } from './lib/push'
@@ -32,6 +32,14 @@ function Shell() {
   const inCall = useVoice((v) => !!v.channelId)
   const stage = useVoice((v) => !!v.channelId && v.stageOpen)
   const sharing = useVoice((v) => v.screen)
+  // "estou por aqui" (para o @here avisar só quem está online), a cada 2 min com o Krata na tela
+  useEffect(() => {
+    const ping = () => { if (document.visibilityState === 'visible') void supabase.rpc('touch_active').then(() => {}, () => {}) }
+    ping()
+    const t = setInterval(ping, 120_000)
+    document.addEventListener('visibilitychange', ping)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', ping) }
+  }, [])
   // depois que tudo abriu, mede se o aparelho está acompanhando as animações
   useEffect(() => { const t = setTimeout(() => watchSmoothness(6000), 2500); return () => clearTimeout(t) }, [])
   // enquanto transmite a tela, o Krata alivia as animações para sobrar processador para o vídeo

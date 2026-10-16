@@ -12,6 +12,7 @@ import org.json.JSONObject;
 public class ActionReceiver extends BroadcastReceiver {
     static final String REPLY = "app.krata.REPLY";
     static final String READ = "app.krata.READ";
+    static final String DISMISS = "app.krata.DISMISS";
 
     @Override
     public void onReceive(final Context context, final Intent intent) {
@@ -50,6 +51,10 @@ public class ActionReceiver extends BroadcastReceiver {
                     try { Inbox.markRead(c, channel); } catch (Throwable ignored) {} finally { pending.finish(); }
                 }
             }).start();
+        } else if (DISMISS.equals(intent.getAction())) {
+            // arrastou a notificação para o lado: a próxima mostra só as mensagens novas
+            Notifier.forgetHistory(c, channel);
+            pending.finish();
         } else pending.finish();
     }
 }

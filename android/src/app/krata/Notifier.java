@@ -84,6 +84,14 @@ final class Notifier {
 
     static int idFor(String channelId) { return 1000 + (channelId.hashCode() & 0x7ffffff); }
 
+    private static boolean visible(Context c, String channelId) {
+        try {
+            int id = idFor(channelId);
+            for (android.service.notification.StatusBarNotification s : c.getSystemService(NotificationManager.class).getActiveNotifications()) if (s.getId() == id) return true;
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
     // ------------------------------------------------------------------ histórico por conversa
     private static SharedPreferences hist(Context c) { return c.getSharedPreferences("krata_notif_hist", Context.MODE_PRIVATE); }
 
@@ -125,6 +133,44 @@ final class Notifier {
         } catch (Throwable ignored) {}
     }
 
+    /** Esquece o histórico da conversa sem mexer na notificação (ela já foi dispensada). */
+    static synchronized void forgetHistory(Context c, String channelId) {
+        hist(c).edit().remove(channelId).apply();
+        updateSummary(c);
+    }
+
+    /**
+     * Conversas lidas em outro lugar (site, computador, outro celular): tira do histórico as mensagens já
+     * vistas e some com a notificação se não sobrar nenhuma nova.
+     */
+    static synchronized void applyReads(Context c, JSONObject reads) {
+        if (reads == null) return;
+        try {
+            SharedPreferences h = hist(c);
+            NotificationManager nm = c.getSystemService(NotificationManager.class);
+            java.util.Iterator<String> it = reads.keys();
+            boolean changed = false;
+            while (it.hasNext()) {
+                String ch = it.next();
+                String raw = h.getString(ch, null);
+                if (raw == null) continue;
+                java.util.Date d = Inbox.parse(reads.optString(ch, ""));
+                if (d == null) continue;
+                long readAt = d.getTime();
+                JSONArray arr = new JSONArray(raw), keep = new JSONArray();
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject e = arr.getJSONObject(i);
+                    if (e.optLong("at") > readAt) keep.put(e);
+                }
+                if (keep.length() == arr.length()) continue;
+                changed = true;
+                if (keep.length() == 0) { h.edit().remove(ch).apply(); nm.cancel(idFor(ch)); }
+                else h.edit().putString(ch, keep.toString()).apply();
+            }
+            if (changed) updateSummary(c);
+        } catch (Throwable ignored) {}
+    }
+
     static void clearChannel(Context c, String channelId) {
         c.getSystemService(NotificationManager.class).cancel(idFor(channelId));
         hist(c).edit().remove(channelId).apply();
@@ -142,6 +188,8 @@ final class Notifier {
             channels(c);
             String channelId = m.optString("channel_id");
             JSONArray h = history(c, channelId);
+            // a notificação desta conversa não está mais na barra (foi aberta ou dispensada): começa do zero
+            if (h.length() > 0 && !silent && !visible(c, channelId)) { hist(c).edit().remove(channelId).apply(); h = new JSONArray(); }
             if (!silent || m.optBoolean("mine") || m.optString("id").startsWith("err-")) {
                 JSONObject entry = new JSONObject();
                 entry.put("id", m.optString("id"));
@@ -258,6 +306,9 @@ final class Notifier {
         Notification.Action.Builder readAction = new Notification.Action.Builder(Icon.createWithResource(c, R.drawable.ic_check), "Marcar como lida", readPi);
         if (Build.VERSION.SDK_INT >= 28) readAction.setSemanticAction(Notification.Action.SEMANTIC_ACTION_MARK_AS_READ);
         b.addAction(readAction.build());
+
+        Intent dismiss = new Intent(c, ActionReceiver.class).setAction(ActionReceiver.DISMISS).putExtra("channel", channelId);
+        b.setDeleteIntent(PendingIntent.getBroadcast(c, idFor(channelId) + 2, dismiss, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
 
         c.getSystemService(NotificationManager.class).notify(idFor(channelId), b.build());
     }

@@ -87,6 +87,7 @@ final class Inbox {
                 String res = rpc(c, "device_inbox", body);
                 p.edit().putLong("last_ok", System.currentTimeMillis()).remove("last_error").apply();
                 JSONObject out = new JSONObject(res);
+                Notifier.applyReads(c, out.optJSONObject("reads"));
                 JSONArray list = out.optJSONArray("messages");
                 if (list != null) {
                     for (int i = 0; i < list.length(); i++) {

@@ -1,8 +1,9 @@
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { dropChannel, errorText, openChannel as openRealtime, safeMediaUrl, supabase } from '../lib/supabase'
 import { sounds } from '../lib/sound'
-import type { Attachment, Channel, CustomEmoji, DmMember, Friendship, Member, Message, Profile, Reaction, Role, Server, Status } from '../lib/types'
+import type { Attachment, Bundle, NotifyLevel, NotifyPref, StaffRole, Channel, CustomEmoji, DmMember, Friendship, Member, Message, Profile, Reaction, Role, Server, Status } from '../lib/types'
 import { appVisible, clearChannelNotifications, nativeNotify, unregisterDevice } from '../lib/appNotify'
+import { canMassPing, massMention, mentionsUser } from '../lib/mentions'
 import { desktopOn, dropPush, pingPush, preview as pushPreview, pushActive, showLocal } from '../lib/push'
 import { MAX_FILE_BYTES, MAX_FILES, describeFile, uploadFile } from '../lib/upload'
 import { fileSize } from '../lib/time'
@@ -197,6 +198,7 @@ export async function loadStructure() {
     unread: counts,
     structureLoaded: true,
   })
+  void loadExtras(uid)
   await ensureProfiles([...dmMembers.map((m) => m.user_id), ...friendList.flatMap((f) => [f.requester_id, f.addressee_id])])
   // Se o lugar onde eu estava deixou de existir (canal apagado, expulsão…), volta para um lugar válido.
   const s = get()
@@ -207,6 +209,22 @@ export async function loadStructure() {
   } else if (channelId && !s.channels.some((c) => c.id === channelId)) {
     navigate({ serverId, channelId: null })
   }
+}
+
+/** Loja, equipe oficial e preferências de aviso (tabelas novas: se ainda não existem, o resto segue normal). */
+export async function loadExtras(uid = get().userId) {
+  if (!uid) return
+  const [staff, bundles, prefs] = await Promise.all([
+    supabase.from('staff').select('username,role'),
+    supabase.from('bundles').select('*'),
+    supabase.from('server_notify_prefs').select('server_id,level,suppress_everyone'),
+  ])
+  if (get().userId !== uid) return
+  set({
+    staff: staff.error ? {} : Object.fromEntries(((staff.data as { username: string; role: StaffRole }[]) || []).map((x) => [x.username, x.role])),
+    bundles: bundles.error ? get().bundles : Object.fromEntries(((bundles.data as Bundle[]) || []).map((b) => [b.id, b])),
+    notifyPrefs: prefs.error ? {} : Object.fromEntries(((prefs.data as { server_id: string; level: NotifyLevel | null; suppress_everyone: boolean }[]) || []).map((x) => [x.server_id, { level: x.level, suppress_everyone: x.suppress_everyone }])),
+  })
 }
 
 let structureTimer: ReturnType<typeof setTimeout> | null = null
@@ -278,8 +296,25 @@ export async function openChannel(channelId: string) {
 
 export async function markRead(channelId: string) {
   clearChannelNotifications(channelId)
+  // computador: some com o aviso desta conversa (a próxima notificação mostra só o que é novo)
+  if (!window.KrataNative && 'serviceWorker' in navigator) void navigator.serviceWorker.getRegistration('/').then((r) => r?.getNotifications({ tag: `krata-${channelId}` })).then((list) => list?.forEach((n) => n.close())).catch(() => {})
   if (get().unread[channelId]) set((s) => ({ unread: { ...s.unread, [channelId]: 0 } }))
   await supabase.rpc('mark_read', { p_channel: channelId })
+}
+
+/** Marca todos os canais de um servidor como lidos. */
+export async function markServerRead(serverId: string) {
+  const ids = get().channels.filter((c) => c.server_id === serverId && get().unread[c.id]).map((c) => c.id)
+  await Promise.all(ids.map((id) => markRead(id)))
+}
+
+/** O que este servidor me avisa (todas, só menções, nada) e se ignora @everyone/@here. */
+export async function setNotifyPref(serverId: string, patch: Partial<NotifyPref>) {
+  const cur = get().notifyPrefs[serverId] || { level: null, suppress_everyone: false }
+  const next = { ...cur, ...patch }
+  set((s) => ({ notifyPrefs: { ...s.notifyPrefs, [serverId]: next } }))
+  const { error } = await supabase.from('server_notify_prefs').upsert({ user_id: get().userId, server_id: serverId, level: next.level, suppress_everyone: next.suppress_everyone, updated_at: new Date().toISOString() })
+  if (error) { set((s) => ({ notifyPrefs: { ...s.notifyPrefs, [serverId]: cur } })); toast(errorText(error), 'error') }
 }
 
 // ============================================================ mensagens
@@ -488,7 +523,7 @@ export async function invitePreview(code: string) {
   const { data } = await supabase.rpc('invite_preview', { p_code: code })
   return ((data as { id: string; name: string; icon_url: string | null; member_count: number; already_member: boolean }[]) || [])[0] || null
 }
-export async function updateServer(id: string, patch: Partial<Pick<Server, 'name' | 'icon_url'>>) {
+export async function updateServer(id: string, patch: Partial<Pick<Server, 'name' | 'icon_url' | 'description' | 'default_notify' | 'everyone_role' | 'welcome_channel'>>) {
   const { error } = await supabase.from('servers').update(patch).eq('id', id)
   if (error) { toast(errorText(error), 'error'); return false }
   set((s) => ({ servers: s.servers.map((x) => (x.id === id ? { ...x, ...patch } : x)) }))
@@ -530,11 +565,14 @@ export async function transferServer(serverId: string, userId: string) {
   toast('Servidor transferido', 'ok')
 }
 
-export async function saveChannel(serverId: string, existing: Channel | undefined, fields: { name: string; topic: string; category: string; kind: 'text' | 'voice' }) {
-  const name = fields.kind === 'text' ? fields.name.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^\p{L}\p{N}_-]/gu, '').slice(0, 60) : fields.name.trim().slice(0, 60)
+/** Nome de canal: espaços, acentos, símbolos e emojis valem (sem quebras de linha), até 50 caracteres. */
+export const cleanChannelName = (raw: string) => [...raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim()].slice(0, 50).join('').trim()
+
+export async function saveChannel(serverId: string, existing: Channel | undefined, fields: { name: string; topic: string; category: string; kind: 'text' | 'voice'; slowmode?: number }) {
+  const name = cleanChannelName(fields.name)
   if (!name) { toast('Dê um nome ao canal.', 'error'); return false }
   if (existing) {
-    const { error } = await supabase.from('channels').update({ name, topic: fields.topic.trim(), category: fields.category.trim() }).eq('id', existing.id)
+    const { error } = await supabase.from('channels').update({ name, topic: fields.topic.trim(), category: fields.category.trim(), ...(fields.slowmode !== undefined && fields.slowmode !== (existing.slowmode ?? 0) ? { slowmode: fields.slowmode } : {}) }).eq('id', existing.id)
     if (error) { toast(errorText(error), 'error'); return false }
   } else {
     const siblings = get().channels.filter((c) => c.server_id === serverId && c.kind === fields.kind)
@@ -542,6 +580,7 @@ export async function saveChannel(serverId: string, existing: Channel | undefine
     const { data, error } = await supabase.from('channels').insert({ server_id: serverId, kind: fields.kind, name, topic: fields.topic.trim(), category: fields.category.trim(), position }).select('*').single()
     if (error) { toast(errorText(error), 'error'); return false }
     const c = data as Channel
+    if (fields.slowmode) await supabase.from('channels').update({ slowmode: fields.slowmode }).eq('id', c.id)
     set((s) => ({ channels: s.channels.some((x) => x.id === c.id) ? s.channels : [...s.channels, c] }))
     if (c.kind === 'text') navigate({ serverId, channelId: c.id })
   }
@@ -699,6 +738,16 @@ async function startRealtime() {
     if (p.eventType === 'DELETE' && !get().emojis[p.old.id as string]) return
     refreshStructureSoon()
   })
+  // loja: bundle aprovado/arquivado aparece na hora; pedido pago avisa a tela de compra
+  on('bundles', (p) => {
+    if (p.eventType === 'DELETE') { const id = p.old.id as string; set((s) => { const b = { ...s.bundles }; delete b[id]; return { bundles: b } }); return }
+    const b = p.new as unknown as Bundle
+    set((s) => ({ bundles: { ...s.bundles, [b.id]: b } }))
+  })
+  on('store_orders', (p) => {
+    if (p.eventType === 'DELETE') return
+    window.dispatchEvent(new CustomEvent('krata-order', { detail: p.new }))
+  })
   db.subscribe((status) => {
     if (status === 'SUBSCRIBED') {
       if (everSubscribed) void resync()
@@ -794,10 +843,19 @@ async function notify(m: Message) {
     await ensureProfiles(s.dmMembers.filter((d) => d.channel_id === m.channel_id).map((d) => d.user_id))
     s = get()
   }
-  const mentioned = !!s.me && new RegExp(`(^|\\s)@(${s.me.username.replace(/\./g, '\\.')}|todos)(?![a-z0-9_.])`, 'i').test(m.content)
+  const mentioned = !!s.me && mentionsUser(m.content, s.me.username)
   // responder uma mensagem sua também conta como menção (igual ao Discord)
   const repliedToMe = !!m.reply_to && Object.values(s.messages).some((l) => l.items.some((x) => x.id === m.reply_to && x.author_id === s.userId))
-  if (channel.server_id && !mentioned && !repliedToMe) return
+  if (channel.server_id) {
+    const server = s.servers.find((x) => x.id === channel.server_id)
+    const pref = s.notifyPrefs[channel.server_id]
+    const level = pref?.level || server?.default_notify || 'mentions'
+    if (level === 'none') return
+    if (level === 'mentions' && !mentioned && !repliedToMe) {
+      // @everyone/@here valem se quem mandou pode e se eu não silenciei (estou com o Krata aberto, então @here vale)
+      if (pref?.suppress_everyone || !massMention(m.content) || !canMassPing(server, m.author_id, s.members[channel.server_id])) return
+    }
+  }
   if (window.KrataNative?.notify) {
     // app Android: notificação do sistema (com foto, nome e resposta rápida)
     if (s.nav.channelId === m.channel_id && appVisible()) return

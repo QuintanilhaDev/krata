@@ -1,1 +1,1 @@
-{ "versionCode": 8, "versionName": "1.5.2", "notes": "Sem o aviso fixo Krata conectado na barra: as mensagens continuam chegando do mesmo jeito.", "url": "krata.apk", "size": 186401, "sha256": "3faed3caedaa337d2d9c43de43cc20a18c4c94d283f2071ca0252711d8a38eb9" }
+{ "versionCode": 9, "versionName": "1.6.0", "notes": "Notificações mostram só as mensagens novas (as que você já viu somem), menções com @everyone e @here, e loja de molduras.", "url": "krata.apk", "size": 186981, "sha256": "6e302689a427376a88ff8d98a79c26cc90797f8807b66c1e00390220298231a7" }

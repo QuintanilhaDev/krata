@@ -4,7 +4,7 @@
 // pode transmitir em até 4K a 60 quadros por segundo.
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { create } from 'zustand'
-import { dropChannel, iceServers, openChannel, supabase } from '../lib/supabase'
+import { dropChannel, iceServers, loadTurn, openChannel, supabase } from '../lib/supabase'
 import { audioCtx, sounds } from '../lib/sound'
 import { nativeScreenStream } from '../lib/nativeScreen'
 import { get as app, dmPartnerIds, toast } from '../store/app'
@@ -192,6 +192,14 @@ interface Peer {
   screenAudio?: RTCRtpSender
   restartTimer?: ReturnType<typeof setTimeout>
   last: Record<string, { bytes: number; at: number }>
+  /** vigia da conexão: quando foi criada, quando esteve conectada pela última vez, últimas tentativas de conserto */
+  createdAt: number
+  okAt: number
+  lastRestart: number
+  /** áudio recebido: quantos bytes e desde quando não aumenta */
+  audioIn?: { bytes: number; since: number }
+  /** taxa do áudio enviado (kbps) escolhida pela qualidade da conexão */
+  audioKbps?: number
   /** sinais de uma conexão são tratados um de cada vez, na ordem em que chegaram */
   queue: Promise<void>
 }
@@ -203,7 +211,7 @@ let joinToken = 0
 /** Identifica esta entrada na sala; muda a cada entrada e depois de uma queda de conexão. */
 let mySession = ''
 
-type Signal = { from: string; to: string; sid?: string; tsid?: string; description?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit }
+type Signal = { from: string; to: string; sid?: string; tsid?: string; description?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; reset?: boolean }
 const outbox: Signal[] = []
 const signal = (to: string, data: Partial<Signal>) => {
   const msg: Signal = { from: app().userId!, to, sid: mySession, tsid: peers.get(to)?.remoteSession, ...data }
@@ -228,7 +236,8 @@ function ensurePeer(id: string, remoteSession?: string): Peer {
   if (existing) return existing
   const me = app().userId!
   const pc = new RTCPeerConnection({ iceServers: iceServers(), bundlePolicy: 'max-bundle', iceCandidatePoolSize: 2 })
-  const p: Peer = { id, remoteSession, pc, polite: me > id, makingOffer: false, ignoreOffer: false, last: {}, queue: Promise.resolve() }
+  const now = Date.now()
+  const p: Peer = { id, remoteSession, pc, polite: me > id, makingOffer: false, ignoreOffer: false, last: {}, queue: Promise.resolve(), createdAt: now, okAt: 0, lastRestart: now }
   peers.set(id, p)
   pc.onnegotiationneeded = async () => {
     try {
@@ -261,17 +270,18 @@ function ensurePeer(id: string, remoteSession?: string): Peer {
   pc.onconnectionstatechange = () => {
     if (peers.get(id) !== p) return
     syncPeerView(p)
-    if (pc.connectionState === 'failed') pc.restartIce()
+    if (pc.connectionState === 'connected') p.okAt = Date.now()
+    if (pc.connectionState === 'failed') { p.lastRestart = Date.now(); pc.restartIce() }
   }
   pc.oniceconnectionstatechange = () => {
     clearTimeout(p.restartTimer)
     if (pc.iceConnectionState === 'disconnected')
-      p.restartTimer = setTimeout(() => { if (pc.iceConnectionState === 'disconnected') pc.restartIce() }, 4000)
-    if (pc.iceConnectionState === 'failed') pc.restartIce()
+      p.restartTimer = setTimeout(() => { if (pc.iceConnectionState === 'disconnected') { p.lastRestart = Date.now(); pc.restartIce() } }, 3000)
+    if (pc.iceConnectionState === 'failed') { p.lastRestart = Date.now(); pc.restartIce() }
   }
   const s = vget()
   const micTrack = s.micStream?.getAudioTracks()[0]
-  if (micTrack && s.micStream) p.mic = pc.addTrack(micTrack, s.micStream)
+  if (micTrack && s.micStream) { p.mic = pc.addTrack(micTrack, s.micStream); tuneAudio(p, AUDIO_KBPS) }
   const camTrack = s.camStream?.getVideoTracks()[0]
   if (camTrack && s.camStream) addCamera(p, camTrack, s.camStream)
   if (s.screenStream) addScreen(p, s.screenStream)
@@ -295,8 +305,45 @@ function closePeer(id: string) {
   })
 }
 
+/**
+ * Áudio que aguenta internet ruim: correção de erros do Opus (recupera pacotes perdidos sem
+ * pedir de novo) e mono. Vale para o que o outro lado nos manda e para o que mandamos.
+ */
+function opusSdp(sdp: string): string {
+  const opus = /a=rtpmap:(\d+) opus\/48000/i.exec(sdp)?.[1]
+  if (!opus) return sdp
+  return sdp.replace(new RegExp(`a=fmtp:${opus} ([^\r\n]*)`), (_l, params: string) => {
+    const kv = new Map(params.split(';').map((x) => x.trim()).filter(Boolean).map((x) => x.split('=') as [string, string]))
+    kv.set('useinbandfec', '1')
+    kv.set('stereo', '0')
+    if (!kv.has('minptime')) kv.set('minptime', '10')
+    return `a=fmtp:${opus} ${[...kv].map(([k, v]) => `${k}=${v}`).join(';')}`
+  })
+}
+
+/** Taxa normal do áudio e a taxa usada quando a conexão está ruim (2G, sinal fraco, muita perda). */
+const AUDIO_KBPS = 40
+const AUDIO_KBPS_LOW = 14
+function tuneAudio(p: Peer, kbps: number) {
+  const sender = p.mic
+  if (!sender || p.audioKbps === kbps) return
+  p.audioKbps = kbps
+  try {
+    const params = sender.getParameters()
+    if (!params.encodings?.length) params.encodings = [{}]
+    for (const e of params.encodings) {
+      e.maxBitrate = kbps * 1000
+      // a voz passa na frente da câmera e da tela quando falta banda
+      e.priority = 'high'
+      e.networkPriority = 'high'
+    }
+    void sender.setParameters(params).catch(() => { p.audioKbps = undefined })
+  } catch { p.audioKbps = undefined }
+}
+
 /** Chrome começa transmissões com pouca banda e sobe devagar; isto pede um início mais alto. */
 function boostSdp(sdp: string): string {
+  sdp = opusSdp(sdp)
   if (!vget().screen || !('chrome' in window)) return sdp
   const lines = sdp.split('\r\n')
   const out: string[] = []
@@ -343,6 +390,12 @@ async function onSignal(msg: Signal) {
   }
   let p = peers.get(msg.from)
   if (p && msg.sid && p.remoteSession && p.remoteSession !== msg.sid) { closePeer(msg.from); p = undefined }
+  if (msg.reset) {
+    // o outro lado recomeçou a conexão do zero; a nossa só é refeita se não acabou de ser criada
+    if (p && Date.now() - p.createdAt > 3000) { closePeer(msg.from); p = undefined }
+    if (!p) ensurePeer(msg.from, msg.sid || member.session)
+    return
+  }
   if (!p) p = ensurePeer(msg.from, msg.sid || member.session)
   const peer = p
   peer.queue = peer.queue.then(() => applySignal(peer, msg))
@@ -444,7 +497,7 @@ function releaseLocal(s: VoiceState, silent: boolean) {
   if (ringing.size || s.outgoing) cancelRing(s.channelId!)
   stopRingback()
   for (const id of [...peers.keys()]) closePeer(id)
-  waiting.clear()
+  waiting.clear(); resets.clear()
   outbox.length = 0
   for (const st of [s.micStream, s.camStream, s.screenStream]) st?.getTracks().forEach((t) => { t.onended = null; t.stop() })
   if (statsTimer) clearInterval(statsTimer)
@@ -472,6 +525,7 @@ async function joinVoiceNow(channelId: string, opts: { ring?: boolean }) {
   const scopeId = scopeOf(channelId)
   vset({ channelId, scopeId, status: 'connecting', stageOpen: true, incoming: null, joinedAt: Date.now() })
   audioCtx()
+  const turn = loadTurn(4000)
   // o pedido do microfone pode ficar esperando a pessoa responder: sair da chamada não espera por ele
   const micReq = getMic()
   const mic = await Promise.race([micReq, new Promise<null>((resolve) => { const t = setInterval(() => { if (token !== joinToken) { clearInterval(t); resolve(null) } }, 150); void micReq.finally(() => clearInterval(t)) })])
@@ -494,6 +548,8 @@ async function joinVoiceNow(channelId: string, opts: { ring?: boolean }) {
   if (token !== joinToken) return
   if (!ok) { toast('Não foi possível conectar à sala. Verifique sua internet.', 'error'); await leaveVoiceNow(true); return }
 
+  await turn
+  if (token !== joinToken) return
   vset({ status: 'connected', joinedAt: Date.now() })
   await within(announce(), 5000)
   if (token !== joinToken) return
@@ -540,7 +596,7 @@ export async function toggleMute() {
       if (!mic) return
       vset({ micStream: mic })
       const track = mic.getAudioTracks()[0]
-      for (const p of peers.values()) p.mic = p.pc.addTrack(track, mic)
+      for (const p of peers.values()) { p.mic = p.pc.addTrack(track, mic); tuneAudio(p, AUDIO_KBPS) }
       watchSpeaking()
     }
     mic?.getAudioTracks().forEach((t) => { t.enabled = true })
@@ -575,7 +631,7 @@ export async function reloadMic() {
   track.enabled = !s.muted
   for (const p of peers.values()) {
     if (p.mic) await p.mic.replaceTrack(track).catch(() => {})
-    else p.mic = p.pc.addTrack(track, mic)
+    else { p.mic = p.pc.addTrack(track, mic); tuneAudio(p, AUDIO_KBPS) }
   }
   s.micStream?.getTracks().forEach((t) => t.stop())
   // mantém o mesmo id de stream do lado de quem recebe: quem já tinha "mic" continua casando pelo anúncio
@@ -854,6 +910,21 @@ async function collectStats() {
     const transport = all.find((r) => r.type === 'transport' && r.selectedCandidatePairId)
     const pair = byId(transport?.selectedCandidatePairId) || all.find((r) => r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded')
     if (pair && typeof pair.currentRoundTripTime === 'number') rtts.push(pair.currentRoundTripTime * 1000)
+    const rtt = pair && typeof pair.currentRoundTripTime === 'number' ? pair.currentRoundTripTime * 1000 : 0
+    // qualidade do áudio que mandamos (o outro lado informa perda e atraso)
+    const ri = all.find((r) => r.type === 'remote-inbound-rtp' && r.kind === 'audio')
+    const loss = ri ? Number(ri.fractionLost || 0) : 0
+    const bad = rtt > 600 || loss > 0.1
+    const good = rtt < 350 && loss < 0.03
+    if (bad) tuneAudio(p, AUDIO_KBPS_LOW)
+    else if (good || !p.audioKbps) tuneAudio(p, p.audioKbps === AUDIO_KBPS_LOW && !good ? AUDIO_KBPS_LOW : AUDIO_KBPS)
+    // áudio recebido parado (o outro lado está com microfone aberto, mas nada chega)
+    const ai = all.find((r) => r.type === 'inbound-rtp' && r.kind === 'audio')
+    if (ai) {
+      const bytes = Number(ai.bytesReceived || 0)
+      if (!p.audioIn || bytes > p.audioIn.bytes) p.audioIn = { bytes, since: Date.now() }
+    }
+    watchdog(p)
     const rate = (key: string, bytes: number) => {
       const prev = p.last[key]
       const now = performance.now()
@@ -877,6 +948,42 @@ async function collectStats() {
     }
   }
   vset({ ping: rtts.length ? Math.round(rtts.reduce((a, b) => a + b, 0) / rtts.length) : null, screenOut, inbound })
+}
+
+/**
+ * Conserta conexões travadas. Antes, alguém podia ficar em "Conectando..." para sempre, ou uma
+ * pessoa específica deixava de ouvir outra enquanto o resto da sala ouvia normalmente.
+ *  1. sem conectar por 8 s  → reinicia o ICE (procura outro caminho, inclusive pelo TURN)
+ *  2. sem conectar por 20 s, ou conectado sem receber o áudio de quem está com microfone aberto
+ *     → recria a conexão do zero dos dois lados (sinal "reset")
+ */
+const resets = new Map<string, number>()
+function watchdog(p: Peer) {
+  if (peers.get(p.id) !== p) return
+  const now = Date.now()
+  const pc = p.pc
+  const connected = pc.connectionState === 'connected'
+  if (connected) { p.okAt = now; if (now - p.createdAt > 60000) resets.delete(p.id) }
+  // quem não conecta de jeito nenhum: as tentativas ficam mais espaçadas (até 2 min)
+  const backoff = Math.min(4, 1 + (resets.get(p.id) || 0))
+  const stuckFor = now - Math.max(p.createdAt, p.okAt)
+  let reset = false
+  if (!connected) {
+    if (stuckFor > 8000 && now - p.lastRestart > 8000) { p.lastRestart = now; try { pc.restartIce() } catch { /* fechada */ } }
+    // os dois lados vigiam; o lado "educado" espera mais para os dois não recomeçarem ao mesmo tempo
+    if (stuckFor > (p.polite ? 30000 : 20000) * backoff) reset = true
+  } else if (p.audioIn && now - p.createdAt > 10000) {
+    const s = vget()
+    const member = ((s.scopeId && s.rosters[s.scopeId]) || []).find((m) => m.user_id === p.id)
+    const talking = member && member.streams.mic && !member.muted && !member.deafened
+    if (talking && now - p.audioIn.since > 9000) reset = true
+  }
+  if (!reset) return
+  resets.set(p.id, (resets.get(p.id) || 0) + 1)
+  const remote = p.remoteSession
+  closePeer(p.id)
+  const fresh = ensurePeer(p.id, remote)
+  signal(fresh.id, { reset: true })
 }
 
 // ------------------------------------------------------------------ chamadas em conversas (toque)

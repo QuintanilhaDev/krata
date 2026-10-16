@@ -17,6 +17,7 @@ import { EmojiPicker } from './EmojiPicker'
 import { GifPicker, useGifFavorites } from './GifPicker'
 import { gifIdFromUrl, gifUrl } from '../lib/gifs'
 import { Markdown, plain } from './Markdown'
+import { canMassPing, massMention, mentionsUser } from '../lib/mentions'
 import { channelMention } from '../prisma/agent'
 import { PRISMA_PROFILE, PrismaHeadButton, PrismaMark } from './Prisma'
 import { Avatar, ErrorBoundary, Spinner } from './ui'
@@ -119,6 +120,14 @@ const MessageItem = memo(function MessageItem({ m, fresh, compact, author, repli
     return [...map.entries()]
   }, [m.reactions, uid])
 
+  if (m.bot === 'welcome') return (
+    <div id={`msg-${m.id}`} className={`msg-system${fresh ? ' fresh' : ''}`} role="note">
+      <span className="msg-system-icon" aria-hidden="true">👋</span>
+      <span><button type="button" className="link-strong" onClick={() => openModal({ type: 'profile', userId: m.author_id })}>{author?.display_name || 'Alguém'}</button> entrou no servidor. Dê as boas-vindas!</span>
+      <time className="muted">{clock(m.created_at)}</time>
+      <button className="btn ghost small" onClick={() => { const input = document.getElementById('composer-input') as HTMLTextAreaElement | null; if (input && author) { input.focus(); document.execCommand?.('insertText', false, `Bem-vindo(a), @${author.username}! 🎉 `) } }}>Acenar 👋</button>
+    </div>
+  )
   const bot = m.bot === 'prisma'
   const name = bot ? 'Prisma' : author?.display_name || 'Usuário'
   const openProfile = () => openModal({ type: 'profile', userId: m.author_id })
@@ -279,7 +288,10 @@ function MessageList({ channel }: { channel: Channel }) {
   const mountedAt = useRef(Date.now())
   const canModerate = role === 'owner' || role === 'admin'
   const canPin = !channel.server_id || canModerate
-  const mentionRx = useMemo(() => (myName ? new RegExp(`(^|\\s)@(${myName.replace(/\./g, '\\.')}|todos)(?![a-z0-9_.])`, 'i') : null), [myName])
+  const server = useApp((s) => (channel.server_id ? s.servers.find((x) => x.id === channel.server_id) : undefined))
+  const serverMembers = useApp((s) => (channel.server_id ? s.members[channel.server_id] : undefined))
+  const suppress = useApp((s) => (channel.server_id ? !!s.notifyPrefs[channel.server_id]?.suppress_everyone : false))
+  const isMentioned = useCallback((m: Message) => !!myName && (mentionsUser(m.content, myName) || (!!channel.server_id && !suppress && !!massMention(m.content) && canMassPing(server, m.author_id, serverMembers))), [myName, channel.server_id, suppress, server, serverMembers])
   const byId = useMemo(() => new Map(items.map((m) => [m.id, m])), [items])
 
   const toBottom = useCallback((smooth = false) => {
@@ -316,7 +328,12 @@ function MessageList({ channel }: { channel: Channel }) {
       prev.current.height = w.scrollHeight
     })
     ro.observe(el)
-    return () => ro.disconnect()
+    // a área visível também muda (teclado do celular abrindo, barra de resposta): continua nas mais recentes
+    if (wrap.current) ro.observe(wrap.current)
+    const vv = window.visualViewport
+    const onVv = () => { const w = wrap.current; if (w && stick.current) requestAnimationFrame(() => { w.scrollTop = w.scrollHeight }) }
+    vv?.addEventListener('resize', onVv)
+    return () => { ro.disconnect(); vv?.removeEventListener('resize', onVv) }
   }, [])
 
   const onScroll = () => {
@@ -350,7 +367,7 @@ function MessageList({ channel }: { channel: Channel }) {
                     {newDay && <div className="day-divider" role="separator"><span>{dayLabel(m.created_at)}</span></div>}
                     <MessageItem m={m} fresh={new Date(m.created_at).getTime() > mountedAt.current} compact={compact} author={profiles[m.author_id]} replied={replied} repliedAuthor={replied ? profiles[replied.author_id] : undefined}
                       mine={m.author_id === uid} canModerate={canModerate} canPin={canPin} editing={editing === m.id}
-                      mentioned={m.author_id !== uid && !!mentionRx?.test(m.content)} />
+                      mentioned={m.author_id !== uid && isMentioned(m)} />
                   </div>
                 )
               })}
@@ -369,6 +386,9 @@ function MessageList({ channel }: { channel: Channel }) {
 // ============================================================ caixa de mensagem
 const drafts = new Map<string, string>()
 
+const massProfile = (username: string, display: string): Profile => ({ id: `mass-${username}`, username, display_name: display, avatar_url: null, banner_url: null, accent_color: '#00A86B', bio: '', status: 'online', custom_status: '', onboarded: true, created_at: '' })
+const MASS_PROFILES = [massProfile('everyone', 'Todos do servidor'), massProfile('here', 'Quem está online agora')]
+
 function Composer({ channel, dropped }: { channel: Channel; dropped: File[] | null }) {
   const [gifs, setGifs] = useState(false)
   const [text, setText] = useState(() => drafts.get(channel.id) || '')
@@ -386,6 +406,7 @@ function Composer({ channel, dropped }: { channel: Channel; dropped: File[] | nu
   const profiles = useApp((s) => s.profiles)
   const uploads = useApp((s) => s.uploads)
   const members = useApp((s) => (channel.server_id ? s.members[channel.server_id] : undefined))
+  const server = useApp((s) => (channel.server_id ? s.servers.find((x) => x.id === channel.server_id) : undefined))
   const dmMembers = useApp((s) => s.dmMembers)
   const uid = useApp((s) => s.userId)
   const myUploads = uploads.filter((u) => u.channelId === channel.id)
@@ -408,8 +429,10 @@ function Composer({ channel, dropped }: { channel: Channel; dropped: File[] | nu
     const ids = channel.server_id ? (members || []).map((m) => m.user_id) : dmMembers.filter((m) => m.channel_id === channel.id).map((m) => m.user_id)
     const q = mention.query.toLowerCase()
     const people = ids.map((id) => profiles[id]).filter((p): p is Profile => !!p && p.id !== uid && (p.username.includes(q) || p.display_name.toLowerCase().includes(q))).slice(0, 6)
-    return 'prisma'.includes(q) ? [PRISMA_PROFILE, ...people].slice(0, 6) : people
-  }, [mention, members, dmMembers, profiles, channel, uid])
+    const mass = channel.server_id && canMassPing(server, uid || '', members)
+      ? MASS_PROFILES.filter((p) => p.username.startsWith(q) || p.display_name.toLowerCase().includes(q)) : []
+    return [...mass, ...('prisma'.includes(q) ? [PRISMA_PROFILE] : []), ...people].slice(0, 7)
+  }, [mention, members, dmMembers, profiles, channel, uid, server])
 
   function onChange(value: string, caret: number) {
     setText(value)
@@ -484,7 +507,7 @@ function Composer({ channel, dropped }: { channel: Channel; dropped: File[] | nu
         <ul className="mention-list pop" role="listbox" aria-label="Mencionar alguém">
           {candidates.map((p, i) => (
             <li key={p.id} role="option" aria-selected={i === mention.index} className={i === mention.index ? 'on' : ''} onMouseDown={(e) => { e.preventDefault(); completeMention(p) }}>
-              {p.id === PRISMA_PROFILE.id ? <span className="bot-avatar small"><PrismaMark size={14} /></span> : <Avatar profile={p} size={24} />} <strong>{p.display_name}</strong> <span className="muted">{p.id === PRISMA_PROFILE.id ? 'assistente · responde aqui' : `@${p.username}`}</span>
+              {p.id === PRISMA_PROFILE.id ? <span className="bot-avatar small"><PrismaMark size={14} /></span> : p.id.startsWith('mass-') ? <span className="mass-avatar"><AtSign size={14} /></span> : <Avatar profile={p} size={24} />} <strong>{p.display_name}</strong> <span className="muted">{p.id === PRISMA_PROFILE.id ? 'assistente · responde aqui' : `@${p.username}`}</span>
             </li>
           ))}
         </ul>

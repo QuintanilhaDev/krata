@@ -54,7 +54,7 @@ function inline(text: string, ctx: Ctx, key = 'k'): ReactNode[] {
     else if (m[10]) {
       const name = raw.slice(1).toLowerCase()
       const id = ctx.users[name]
-      if (name === 'todos') out.push(<span key={k} className="mention me">@todos</span>)
+      if (name === 'todos' || name === 'everyone' || name === 'here' || name === 'aqui') out.push(<span key={k} className="mention mass">@{name}</span>)
       else if (id) out.push(
         <button key={k} type="button" className={`mention${name === ctx.me ? ' me' : ''}`} onClick={() => openModal({ type: 'profile', userId: id })}>@{name}</button>,
       )

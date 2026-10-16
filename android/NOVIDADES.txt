@@ -1,1 +1,1 @@
-Sem o aviso fixo "Krata conectado" na barra: as mensagens continuam chegando do mesmo jeito.
+Notificações mostram só as mensagens novas (as que você já viu somem), menções com @everyone e @here, e loja de molduras.

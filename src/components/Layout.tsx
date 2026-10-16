@@ -1,11 +1,12 @@
 import {
   Check, ChevronDown, Compass, Headphones, HeadphoneOff, LogOut, Menu, MessageCircle, Mic, MicOff, Phone, Plus, Search, Settings,
-  Hash, UserPlus, Users, Video, Volume2, X, Pencil, UserRoundPlus,
+  Hash, Users, Video, Volume2, X, Pencil, UserRoundPlus, ShoppingBag,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Channel, Profile, Status } from '../lib/types'
+import { ServerContextMenu, ServerMenuItems } from './ServerMenu'
 import {
-  acceptFriend, byPosition, leaveGroup, leaveServer, navigate, openDm, removeFriend, sendFriendRequest, updateProfile,
+  acceptFriend, byPosition, leaveGroup, navigate, openDm, removeFriend, sendFriendRequest, updateProfile,
 } from '../store/actions'
 import { channelTitle, dmPartnerIds, friendIds, openModal, presenceOf, set, useApp, useDirectory, type AppState } from '../store/app'
 import { joinVoice, toggleDeafen, toggleMute, useVoice, type VoiceMember } from '../voice/engine'
@@ -24,8 +25,25 @@ export function Rail() {
   const dmUnread = channels.filter((c) => !c.server_id && unread[c.id] > 0)
   const totalDm = dmUnread.reduce((n, c) => n + unread[c.id], 0)
   const serverUnread = (id: string) => channels.some((c) => c.server_id === id && unread[c.id] > 0)
+  // botão direito (ou segurar no celular) abre o menu do servidor
+  const [ctx, setCtx] = useState<{ id: string; x: number; y: number } | null>(null)
+  const hold = useRef<{ t: number; fired: boolean }>({ t: 0, fired: false })
+  const ctxHandlers = (id: string) => ({
+    onContextMenu: (e: React.MouseEvent) => { e.preventDefault(); setCtx({ id, x: e.clientX, y: e.clientY }) },
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.pointerType !== 'touch') return
+      const x = e.clientX, y = e.clientY
+      hold.current.fired = false
+      hold.current.t = window.setTimeout(() => { hold.current.fired = true; navigator.vibrate?.(12); setCtx({ id, x: x + 8, y }) }, 480)
+    },
+    onPointerUp: () => clearTimeout(hold.current.t),
+    onPointerLeave: () => clearTimeout(hold.current.t),
+    onPointerCancel: () => clearTimeout(hold.current.t),
+    onClickCapture: (e: React.MouseEvent) => { if (hold.current.fired) { e.preventDefault(); e.stopPropagation(); hold.current.fired = false } },
+  })
   return (
     <nav className="rail" aria-label="Servidores">
+      {ctx && <ServerContextMenu serverId={ctx.id} x={ctx.x} y={ctx.y} onClose={() => setCtx(null)} />}
       <button data-prisma="home" className={`rail-item home${!nav.serverId ? ' on' : ''}`} onClick={() => navigate({ serverId: null, channelId: null }, { keepPanel: true })} aria-label="Conversas e amigos" data-tip="Conversas" data-tip-side="right">
         <span className="rail-face"><Gem size={34} speed={0.7} /></span>
         {totalDm > 0 && <span className="badge">{totalDm > 99 ? '99+' : totalDm}</span>}
@@ -43,14 +61,25 @@ export function Rail() {
       <span className="rail-sep" />
       <div className="rail-scroll">
         {servers.map((sv, i) => (
-          <button key={sv.id} data-prisma={`server-${sv.id}`} style={{ ['--i' as string]: i }} className={`rail-item${nav.serverId === sv.id ? ' on' : ''}${serverUnread(sv.id) ? ' unread' : ''}`} onClick={() => navigate({ serverId: sv.id, channelId: null }, { keepPanel: true })} aria-label={sv.name} aria-current={nav.serverId === sv.id} data-tip={sv.name} data-tip-side="right">
+          <button key={sv.id} {...ctxHandlers(sv.id)} data-prisma={`server-${sv.id}`} style={{ ['--i' as string]: i }} className={`rail-item${nav.serverId === sv.id ? ' on' : ''}${serverUnread(sv.id) ? ' unread' : ''}`} onClick={() => navigate({ serverId: sv.id, channelId: null }, { keepPanel: true })} aria-label={sv.name} aria-current={nav.serverId === sv.id} data-tip={sv.name} data-tip-side="right">
             <span className="rail-face"><Avatar url={sv.icon_url} name={sv.name} seed={sv.id} size={48} square /></span>
           </button>
         ))}
         <button data-prisma="create-server" className="rail-item add" onClick={() => openModal({ type: 'createServer' })} aria-label="Criar um servidor" data-tip="Criar um servidor" data-tip-side="right"><span className="rail-face"><Plus size={22} /></span></button>
         <button data-prisma="join-server" className="rail-item add" onClick={() => openModal({ type: 'joinServer' })} aria-label="Entrar com um convite" data-tip="Entrar com convite" data-tip-side="right"><span className="rail-face"><Compass size={21} /></span></button>
+        <ShopRailButton />
       </div>
     </nav>
+  )
+}
+
+function ShopRailButton() {
+  const toReview = useApp((s) => (s.me && s.staff[s.me.username] === 'dev' ? Object.values(s.bundles).filter((b) => b.status === 'pending').length : 0))
+  return (
+    <button data-prisma="shop" className="rail-item shop" onClick={() => openModal(toReview ? { type: 'settings', tab: 'dev' } : { type: 'shop' })} aria-label={toReview ? `Loja: ${toReview} bundles para aprovar` : 'Loja'} data-tip={toReview ? `${toReview} para aprovar` : 'Loja'} data-tip-side="right">
+      <span className="rail-face"><ShoppingBag size={21} /></span>
+      {toReview > 0 && <span className="badge">{toReview}</span>}
+    </button>
   )
 }
 
@@ -181,13 +210,8 @@ function ServerSidebar({ serverId }: { serverId: string }) {
           <span>{server.name}</span><ChevronDown size={17} className={menu ? 'flip' : ''} />
         </button>
         {menu && (
-          <div className="pop server-menu" role="menu" onClick={() => setMenu(false)}>
-            <button className="menu-item accent" role="menuitem" onClick={() => openModal({ type: 'invite', serverId })}><UserPlus size={16} /> Convidar pessoas</button>
-            {admin && <button className="menu-item" role="menuitem" onClick={() => openModal({ type: 'serverSettings', serverId })}><Settings size={16} /> Configurações do servidor</button>}
-            {admin && <button className="menu-item" role="menuitem" onClick={() => openModal({ type: 'channel', serverId, kind: 'text' })}><Plus size={16} /> Criar canal</button>}
-            {role !== 'owner' && (
-              <button className="menu-item danger" role="menuitem" onClick={() => openModal({ type: 'confirm', title: `Sair de ${server.name}`, text: 'Você só volta com um novo convite.', action: 'Sair do servidor', danger: true, onConfirm: () => leaveServer(serverId) })}><LogOut size={16} /> Sair do servidor</button>
-            )}
+          <div className="pop server-menu" role="menu">
+            <ServerMenuItems serverId={serverId} onDone={() => setMenu(false)} />
           </div>
         )}
       </header>
