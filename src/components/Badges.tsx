@@ -2,6 +2,7 @@
 import { useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { badgesOf, type BadgeId, type BadgeInfo } from '../lib/badges'
+import { useApp } from '../store/app'
 
 /** Desenho de cada insígnia (24×24). */
 export function BadgeIcon({ id, size = 24 }: { id: BadgeId; size?: number }) {
@@ -69,7 +70,8 @@ function Badge({ b }: { b: BadgeInfo }) {
 
 /** Fileira de insígnias de alguém (nada se não tiver). */
 export function Badges({ username }: { username?: string | null }) {
-  const list = badgesOf(username)
+  const role = useApp((s) => (username ? s.staff[username] : undefined))
+  const list = badgesOf(username, role)
   if (!list.length) return null
   return <span className="kbadges">{list.map((b) => <Badge key={b.id} b={b} />)}</span>
 }

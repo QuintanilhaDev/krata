@@ -12,6 +12,13 @@ export const BADGES: Record<BadgeId, BadgeInfo> = {
 const BY_USER: Record<string, BadgeId[]> = {
   bones: ['founder'],
   novacombos: ['artist'],
+  drawgoa: ['artist'],
 }
 
-export const badgesOf = (username?: string | null): BadgeInfo[] => (username ? (BY_USER[username] || []).map((b) => BADGES[b]) : [])
+/** Insígnias da pessoa: as fixas acima + "Artista Oficial" para quem o desenvolvedor credenciou na loja (tabela staff). */
+export const badgesOf = (username?: string | null, staffRole?: string | null): BadgeInfo[] => {
+  if (!username) return []
+  const ids = [...(BY_USER[username] || [])]
+  if (staffRole === 'artist' && !ids.includes('artist')) ids.push('artist')
+  return ids.map((b) => BADGES[b])
+}

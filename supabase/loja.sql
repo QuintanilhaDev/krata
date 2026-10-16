@@ -18,7 +18,7 @@ revoke all on public.staff from anon, authenticated;
 grant select on public.staff to authenticated;
 drop policy if exists staff_read on public.staff;
 create policy staff_read on public.staff for select to authenticated using (true);
-insert into public.staff (username, role) values ('bones', 'dev'), ('novacombos', 'artist')
+insert into public.staff (username, role) values ('bones', 'dev'), ('novacombos', 'artist'), ('drawgoa', 'artist')
   on conflict (username) do nothing;
 
 create or replace function public.is_dev(p_uid uuid default auth.uid())
