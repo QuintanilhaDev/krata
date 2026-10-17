@@ -13,6 +13,7 @@ const BY_USER: Record<string, BadgeId[]> = {
   bones: ['founder'],
   novacombos: ['artist'],
   drawgoa: ['artist'],
+  ely: ['artist'],
 }
 
 /** Insígnias da pessoa: as fixas acima + "Artista Oficial" para quem o desenvolvedor credenciou na loja (tabela staff). */
